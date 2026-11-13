@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -50,7 +50,7 @@ jobs:
         run: python3 scripts/test-package-release.py
 
   benchmark:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     env:
       BENCHMARK_SUMMARY_FILE: .local/ci-summary/summary.json
