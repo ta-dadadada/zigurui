@@ -1,5 +1,5 @@
 //! CLIの引数処理、Markdownの収集、索引の保存と検索結果の表示を担当する。
-//! コマンド中の文書・表示用メモリはプロセスのarenaに確保し、終了時にまとめて解放する。
+//! 収集した原文と表示用メモリはプロセスのarenaで管理する。読み込んだ索引はgpaで所有し、検索後に解放する。
 
 const std = @import("std");
 const search = @import("search.zig");
@@ -57,8 +57,9 @@ fn run(init: std.process.Init) !void {
         const message = try std.fmt.allocPrint(allocator, "{d} documents indexed\n", .{documents.len});
         try std.Io.File.stdout().writeStreamingAll(init.io, message);
     } else if (std.mem.eql(u8, args[1], "search")) {
-        const bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], allocator, .limited(max_index_bytes));
-        var stored = try storage.decode(allocator, bytes);
+        const bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], init.gpa, .limited(max_index_bytes));
+        // 読み込みバッファを複製せず渡す。decodeOwnedは失敗時も所有権を引き取る。
+        var stored = try storage.decodeOwned(init.gpa, bytes);
         defer stored.deinit();
         const matches = try stored.index.search(allocator, args[3]);
         try printMatches(allocator, init.io, stored.index.documents, matches);

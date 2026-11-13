@@ -57,6 +57,14 @@ pub fn encode(allocator: std.mem.Allocator, index: *const search.Index) ![]u8 {
 /// 破損・不正な構造はInvalidIndex、未対応の版はUnsupportedVersionを返す。
 /// チェックサムは偶発的な破損を検出するもので、改ざんの認証は行わない。
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !StoredIndex {
+    return decodeOwned(allocator, try allocator.dupe(u8, bytes));
+}
+
+/// 同じallocatorで確保したbytesを所有権ごと受け取り、複製せず復元する。
+/// 成功・失敗のいずれでも入力を消費するため、呼び出し側はbytesを解放・再利用しない。
+/// 成功後はStoredIndex.deinitが入力全体を解放する。検証条件とエラーはdecodeと同じ。
+pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []u8) !StoredIndex {
+    errdefer allocator.free(bytes);
     var header: Reader = .{ .bytes = bytes };
     if (!std.mem.eql(u8, try header.take(magic.len), magic)) return error.InvalidIndex;
     if (try header.int(u32) != format_version) return error.UnsupportedVersion;
@@ -65,9 +73,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !StoredIndex {
     if (payload_len != bytes.len - header_size) return error.InvalidIndex;
     if (checksum(bytes[header_size..]) != expected_checksum) return error.InvalidIndex;
 
-    const backing = try allocator.dupe(u8, bytes[header_size..]);
-    errdefer allocator.free(backing);
-    var reader: Reader = .{ .bytes = backing };
+    var reader: Reader = .{ .bytes = bytes[header_size..] };
     const document_count = try reader.length();
     const posting_count = try reader.length();
     // 宣言件数による過大な確保を避ける。各文書は長さ2個で最低16バイト必要。
@@ -105,7 +111,7 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !StoredIndex {
     if (reader.remaining() != 0) return error.InvalidIndex;
     return .{
         .index = .{ .allocator = allocator, .documents = documents, .postings = postings },
-        .backing = backing,
+        .backing = bytes,
     };
 }
 
@@ -201,18 +207,27 @@ test "切り詰め・破損・未対応version・末尾追加を拒否する" {
     defer index.deinit();
     const bytes = try encode(allocator, &index);
     defer allocator.free(bytes);
-    for (0..bytes.len) |len| try std.testing.expectError(error.InvalidIndex, decode(allocator, bytes[0..len]));
+    for (0..bytes.len) |len| {
+        try std.testing.expectError(error.InvalidIndex, decode(allocator, bytes[0..len]));
+        try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, bytes[0..len])));
+    }
     bytes[bytes.len - 1] ^= 1;
     try std.testing.expectError(error.InvalidIndex, decode(allocator, bytes));
+    try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
     bytes[bytes.len - 1] ^= 1;
+    bytes[0] ^= 1;
+    try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
+    bytes[0] ^= 1;
     bytes[8] = 2;
     try std.testing.expectError(error.UnsupportedVersion, decode(allocator, bytes));
+    try std.testing.expectError(error.UnsupportedVersion, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
     bytes[8] = 1;
     const appended = try allocator.alloc(u8, bytes.len + 1);
     defer allocator.free(appended);
     @memcpy(appended[0..bytes.len], bytes);
     appended[bytes.len] = 0;
     try std.testing.expectError(error.InvalidIndex, decode(allocator, appended));
+    try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, appended)));
 }
 
 test "空の索引を保存できる" {
@@ -232,6 +247,7 @@ fn expectInvalid(documents: []const search.Document, postings: []const search.Po
     const bytes = try encode(allocator, &index);
     defer allocator.free(bytes);
     try std.testing.expectError(error.InvalidIndex, decode(allocator, bytes));
+    try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
 }
 
 test "checksumが正しくても不正なgram・文書ID・順序を拒否する" {
@@ -265,6 +281,7 @@ test "checksumが正しくても過大な件数や文字列長を拒否する" {
         putInt(u64, bytes[offset..][0..8], std.math.maxInt(u64));
         putInt(u64, bytes[20..28], checksum(bytes[header_size..]));
         try std.testing.expectError(error.InvalidIndex, decode(allocator, bytes));
+        try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
     }
 }
 
@@ -279,4 +296,41 @@ fn allocationRoundtrip(allocator: std.mem.Allocator) !void {
 
 test "allocation失敗時も構築・復元途中の所有メモリを解放する" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationRoundtrip, .{});
+}
+
+test "所有入力は複製せず参照し、借用入力は復元後に変更できる" {
+    const allocator = std.testing.allocator;
+    var index = try search.Index.init(allocator, &fixture);
+    defer index.deinit();
+    const owned = try encode(allocator, &index);
+    const owned_ptr = owned.ptr;
+    const owned_len = owned.len;
+    var stored_owned = try decodeOwned(allocator, owned);
+    defer stored_owned.deinit();
+    try std.testing.expectEqual(owned_ptr, stored_owned.backing.ptr);
+    try std.testing.expectEqual(owned_len, stored_owned.backing.len);
+
+    const borrowed = try encode(allocator, &index);
+    defer allocator.free(borrowed);
+    var stored_borrowed = try decode(allocator, borrowed);
+    defer stored_borrowed.deinit();
+    try std.testing.expect(borrowed.ptr != stored_borrowed.backing.ptr);
+    @memset(borrowed, 0);
+    const matches = try stored_borrowed.index.search(allocator, "検索");
+    defer allocator.free(matches);
+    try std.testing.expectEqual(@as(usize, 1), matches.len);
+    try std.testing.expectEqualStrings(fixture[0].text, stored_borrowed.index.documents[0].text);
+}
+
+fn ownedAllocationRoundtrip(allocator: std.mem.Allocator) !void {
+    var index = try search.Index.init(allocator, &fixture);
+    defer index.deinit();
+    const bytes = try encode(allocator, &index);
+    // decodeOwnedは失敗時もbytesを解放するため、ここではdefer freeしない。
+    var stored = try decodeOwned(allocator, bytes);
+    defer stored.deinit();
+}
+
+test "所有入力の復元がallocation失敗しても入力と途中配列を解放する" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, ownedAllocationRoundtrip, .{});
 }
