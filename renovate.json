@@ -1,0 +1,15 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["mise", "github-actions"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* 0-8 * * 1"],
+  "automerge": false,
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action", "workflow"],
+      "pinDigests": true
+    }
+  ]
+}

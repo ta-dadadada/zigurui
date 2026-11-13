@@ -1,0 +1,16 @@
+# CIとローカルで検査範囲・判定基準を共有する。
+format: table
+exit-code: 1
+cache:
+  dir: .local/trivy-cache
+scan:
+  disable-telemetry: true
+  skip-dirs:
+    - .git
+    - .local
+    - .zig-cache
+    - zig-out
+    - '**/__pycache__'
+  skip-files:
+    - '**/*.pyc'
+    - '**/*.pyo'

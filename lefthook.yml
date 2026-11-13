@@ -1,0 +1,8 @@
+lefthook: mise exec -- lefthook
+
+pre-commit:
+  commands:
+    fmt:
+      run: mise run fmt:check
+    workflows:
+      run: mise run lint:workflows

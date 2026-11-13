@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Set up mise and project tools
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+
+      - name: Check Zig formatting, build and unit tests
+        run: mise run check
+
+      - name: Test CLI
+        run: python3 scripts/test-cli.py
+
+      - name: Test benchmark corpus and independent oracle
+        run: python3 scripts/test-benchmark-corpus.py
+
+      - name: Test benchmark measurement harness
+        run: python3 scripts/test-benchmark.py
+
+      - name: Test benchmark report exporter
+        run: python3 scripts/test-benchmark-report.py
+
+      - name: Test release packaging
+        run: python3 scripts/test-package-release.py
+
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BENCHMARK_SUMMARY_FILE: .local/ci-summary/summary.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Set up mise and project tools
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+        with:
+          install_args: zig
+
+      - name: Build ReleaseFast
+        run: mise exec -- zig build -Doptimize=ReleaseFast --prefix .local/ci-release
+
+      # 性能の閾値は設けず、結果を確認できる小規模な計測を実行する。
+      - name: Measure benchmark
+        run: >-
+          python3 scripts/benchmark.py
+          --binary .local/ci-release/bin/zigurui
+          --output-root .local/ci-benchmark
+          --run-id ci-run
+          --sizes 100 1000
+          --index-repeats 3
+          --repeats 5
+          --warmups 1
+          --seed 20261114
+
+      - name: Export benchmark summary
+        run: >-
+          python3 scripts/benchmark_report.py
+          .local/ci-benchmark/ci-run/results.json
+          "$BENCHMARK_SUMMARY_FILE"
+
+      - name: Write benchmark job summary
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(Path(os.environ["BENCHMARK_SUMMARY_FILE"]).read_text())
+          config = report["configuration"]
+          lines = [
+              "## zigurui benchmark",
+              f"ReleaseFast / index {config['index_repeats']}回 / 各検索語 {config['query_repeats']}回 / 予熱 {config['warmups_per_method_query']}回",
+              "CLI全体の時間。検索列は検索語ごとの値の範囲。性能の合否判定は行わない。異なる実行間の比較にはrunnerの変動を考慮する。",
+              "",
+              "| 文書数 | 索引 median / p95 (ms) | search median (ms) | search p95 (ms) | scan median (ms) | search peak RSS中央値 (MiB) | 正しさ / 検索意図 |",
+              "| ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+          ]
+          def bounds(dataset, method, metric, divisor=1):
+              values = [query[method][metric] / divisor for query in dataset["queries"]]
+              return f"{min(values):.3f}–{max(values):.3f}"
+          for dataset in report["datasets"]:
+              index = dataset["index"]
+              lines.append(
+                  f"| {dataset['document_count']} | {index['median_ms']:.3f} / {index['p95_ms']:.3f} | "
+                  f"{bounds(dataset, 'search', 'median_ms')} | {bounds(dataset, 'search', 'p95_ms')} | "
+                  f"{bounds(dataset, 'scan', 'median_ms')} | {bounds(dataset, 'search', 'median_peak_rss_bytes', 1048576)} | "
+                  f"{dataset['correctness_passed']} / {dataset['query_suitability_passed']} |"
+              )
+          lines.extend(["", "検索語ごとの詳細と実行条件は benchmark-summary artifactのsummary.jsonを参照。"])
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as output:
+              output.write("\n".join(lines) + "\n")
+
+      - name: Upload benchmark summary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-summary
+          path: ${{ env.BENCHMARK_SUMMARY_FILE }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
