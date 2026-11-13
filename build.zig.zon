@@ -1,0 +1,13 @@
+.{
+    .name = .zigurui,
+    .fingerprint = 0xbc2f1d0ba260e895,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.17.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

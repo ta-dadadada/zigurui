@@ -1,1 +1,4 @@
 .local/
+.agent-goal.md
+.zig-cache/
+zig-out/

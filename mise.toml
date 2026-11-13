@@ -1,0 +1,26 @@
+[tools]
+zig = "0.17.1"
+
+[tasks.build]
+description = "実行ファイルをビルドする"
+run = "zig build"
+
+[tasks.run]
+description = "実行ファイルを起動する"
+run = "zig build run"
+
+[tasks.test]
+description = "テストを実行する"
+run = "zig build test"
+
+[tasks.fmt]
+description = "Zigファイルを整形する"
+run = "zig fmt build.zig build.zig.zon src"
+
+[tasks."fmt:check"]
+description = "Zigファイルの整形を検査する"
+run = "zig fmt --check build.zig build.zig.zon src"
+
+[tasks.check]
+description = "整形・ビルド・テストを確認する"
+depends = ["fmt:check", "build", "test"]
