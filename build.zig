@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .strip = b.option(bool, "strip", "配布用にデバッグ情報とシンボルを除去する"),
     });
 
     const exe = b.addExecutable(.{

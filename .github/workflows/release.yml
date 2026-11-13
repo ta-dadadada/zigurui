@@ -1,0 +1,173 @@
+name: Prerelease
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      # stableタグやパス・shell構文を含むタグは、ビルド前に拒否する。
+      - name: Validate prerelease tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/package_release.py validate-tag "$RELEASE_TAG"
+
+      - name: Set up mise and project tools
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+
+      - name: Check source and packaging
+        run: |
+          mise run check
+          python3 scripts/test-package-release.py
+
+      - name: Export target matrix
+        id: targets
+        run: python3 scripts/package_release.py targets --github-output "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate.outputs.matrix) }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Set up mise and project tools
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
+
+      - name: Build one release target
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: >-
+          python3 scripts/package_release.py build-target
+          --tag "$RELEASE_TAG" --target "$RELEASE_TARGET"
+          --output .local/release-target
+
+      # build用の中間出力は含めず、検証済みbinaryと有限metadataだけを渡す。
+      - name: Upload target artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            .local/release-target/zigurui
+            .local/release-target/target.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  aggregate:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout tagged packaging script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Download target artifacts separately
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-target-*
+          merge-multiple: false
+          path: .local/release-targets
+
+      - name: Validate all targets and package release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python3 scripts/package_release.py aggregate
+          --tag "$RELEASE_TAG" --inputs .local/release-targets
+          --output .local/release-assets
+
+      - name: Test packaged Linux executable
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/package_release.py verify --tag "$RELEASE_TAG" --directory .local/release-assets
+          package_dir=$(mktemp -d)
+          tar -xzf ".local/release-assets/zigurui-$RELEASE_TAG-linux-x86_64.tar.gz" -C "$package_dir" --strip-components=1
+          python3 scripts/test-cli.py "$package_dir/zigurui"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prerelease-assets
+          path: |
+            .local/release-assets/*.tar.gz
+            .local/release-assets/SHA256SUMS
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: aggregate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tagged validation script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+
+      - name: Download release assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: prerelease-assets
+          path: .local/release-assets
+
+      - name: Verify and publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/package_release.py verify --tag "$RELEASE_TAG" --directory .local/release-assets
+          gh release create "$RELEASE_TAG" \
+            .local/release-assets/*.tar.gz .local/release-assets/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
+            --title "$RELEASE_TAG" --generate-notes
