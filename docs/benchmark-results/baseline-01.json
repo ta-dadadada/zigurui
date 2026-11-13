@@ -1,0 +1,1314 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "started_at_utc": "2026-11-13T15:33:11.458984+00:00",
+  "finished_at_utc": "2026-11-13T15:34:52.986750+00:00",
+  "configuration": {
+    "sizes": [
+      100,
+      1000,
+      10000
+    ],
+    "index_repeats": 5,
+    "query_repeats": 30,
+    "warmups_per_method_query": 2,
+    "seed": 20261114,
+    "timeout_seconds": 120,
+    "build_mode": "ReleaseFast (caller declaration)",
+    "timing_scope": "CLI wall time including launch/wait, I/O, processing and output to DEVNULL",
+    "percentile_method": "nearest-rank: ceil(0.95*n)",
+    "cache_policy": "warm filesystem cache; no eviction",
+    "schedule": "sequential; seeded query shuffle; alternating method order"
+  },
+  "environment": {
+    "os_family": "macOS",
+    "os_version": "26.6.2",
+    "architecture": "arm64",
+    "hardware": {
+      "cpu_model": null,
+      "memory_bytes": null,
+      "logical_cpu_count": 10
+    },
+    "python_version": "3.14.7",
+    "zig_version": "0.17.1",
+    "repository_head_at_measurement": "be6f852a84f2c92d3bd23bd92a28b8ca9dee6786",
+    "source_files_reported_modified": [],
+    "binary_sha256": "2ca0cf4947f2262b603742362d139ae90259276f2b9e6fda075608ab5f9be257",
+    "source_sha256": {
+      "src/main.zig": "d297b66fd9b664e671894ec2fd8ea85a0ab5b864586a881cf8fc97aece8e445e",
+      "src/search.zig": "11bc2a7450c5215f3f10c581ef5b840b5b7fed930d513e4254e66bc0e29a0ff2",
+      "src/storage.zig": "4b55e9bf1e66ec1ee1c73bcc680a4a2bcc01e6a0f55d6979fd2f756a1e89cf92",
+      "build.zig": "a2fa7481eb8671151b1bce41fce760483479ec3c13a11a0a2ba9b595fa87f441",
+      "build.zig.zon": "976ac0ceeb3472bfda8725cd74895ccd6f5daf27d64f646cd09802cb09facdf1",
+      "mise.toml": "f719d05bc6eb54bda3ee74796f8cc82f9c460fc51139fd0cab89dc83c816eda4"
+    },
+    "runner_sha256": {
+      "scripts/benchmark.py": "fbc393a45cef19963762f7c2fa6d586ed746339ed363f4a879808ac3b907706f",
+      "scripts/benchmark_corpus.py": "64b5e157ca42b66abed008ff789781609efc7581c4bb829bfff672f2a4a4069e"
+    }
+  },
+  "queries": [
+    {
+      "id": "ja-one",
+      "text": "検",
+      "category": "one-codepoint",
+      "language": "ja",
+      "intent": "短い日本語でも検索設計を見つける",
+      "expected_documents": [
+        "000000-ja.md",
+        "000004-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "en-one",
+      "text": "s",
+      "category": "one-codepoint",
+      "language": "en",
+      "intent": "短い英字を含む文書を見つける",
+      "expected_documents": [
+        "000002-en.md",
+        "000003-en.md",
+        "000004-mixed.md",
+        "000005-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "ja-two",
+      "text": "検索",
+      "category": "two-codepoint",
+      "language": "ja",
+      "intent": "検索についての設計を見つける",
+      "expected_documents": [
+        "000000-ja.md",
+        "000004-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "en-two",
+      "text": "se",
+      "category": "two-codepoint",
+      "language": "en",
+      "intent": "英語searchの一部から文書を見つける",
+      "expected_documents": [
+        "000002-en.md",
+        "000004-mixed.md",
+        "000005-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "ja-long",
+      "text": "転置インデックス",
+      "category": "long",
+      "language": "ja",
+      "intent": "索引の設計メモを見つける",
+      "expected_documents": [
+        "000000-ja.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "en-long",
+      "text": "inverted index",
+      "category": "long",
+      "language": "en",
+      "intent": "英語の索引設計を見つける",
+      "expected_documents": [
+        "000002-en.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "mixed-long",
+      "text": "Zigで検索",
+      "category": "long",
+      "language": "mixed",
+      "intent": "Zigの実装方針を見つける",
+      "expected_documents": [
+        "000004-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "ja-frequent",
+      "text": "メモ",
+      "category": "frequent",
+      "language": "ja",
+      "intent": "メモを広く拾う",
+      "expected_documents": [
+        "000000-ja.md",
+        "000004-mixed.md",
+        "000005-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "ja-rare",
+      "text": "猫の通院記録",
+      "category": "rare",
+      "language": "ja",
+      "intent": "猫の受診記録を探す",
+      "expected_documents": [
+        "000001-ja.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "en-rare",
+      "text": "lunar backup protocol",
+      "category": "rare",
+      "language": "en",
+      "intent": "特定のバックアップ手順を探す",
+      "expected_documents": [
+        "000003-en.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "mixed-rare",
+      "text": "Zig allocator設計",
+      "category": "rare",
+      "language": "mixed",
+      "intent": "allocatorの所有権設計を探す",
+      "expected_documents": [
+        "000004-mixed.md"
+      ],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "missing",
+      "text": "ZZZ存在しない98765",
+      "category": "no-hit",
+      "language": "mixed",
+      "intent": "存在しない語で結果を返さない",
+      "expected_documents": [],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "ja-false-candidate",
+      "text": "東京駅前",
+      "category": "false-candidate",
+      "language": "ja",
+      "intent": "全bigramが離れて存在しても連続しなければ除外する",
+      "expected_documents": [],
+      "expected_scope": "handcrafted-documents-only"
+    },
+    {
+      "id": "en-false-candidate",
+      "text": "abcde",
+      "category": "false-candidate",
+      "language": "en",
+      "intent": "離れた英語bigramだけの文書を除外する",
+      "expected_documents": [],
+      "expected_scope": "handcrafted-documents-only"
+    }
+  ],
+  "datasets": [
+    {
+      "document_count": 100,
+      "corpus_bytes": 100570,
+      "index_bytes": 278157,
+      "corpus_sha256": "fd48829a30c57dba0b3dcc6b1c6345bb94f934cafae696f84e7ad28624a6b48c",
+      "language_counts": {
+        "ja": 34,
+        "en": 33,
+        "mixed": 33
+      },
+      "manifest_path": "$RUN/corpus-100/manifest.json",
+      "correctness_passed": true,
+      "query_suitability_passed": true,
+      "measurement_validity": {
+        "passed": true,
+        "all_commands_succeeded": true,
+        "binary_unchanged": true,
+        "samples_complete": true
+      },
+      "index": {
+        "count": 5,
+        "median_ms": 4.856834,
+        "p95_ms": 5.429458,
+        "median_peak_rss_bytes": 2719744,
+        "p95_peak_rss_bytes": 2719744
+      },
+      "queries": [
+        {
+          "id": "ja-one",
+          "expected_hit_count": 65,
+          "actual_hit_count": 65,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.339354,
+            "p95_ms": 2.675167,
+            "median_peak_rss_bytes": 2441216.0,
+            "p95_peak_rss_bytes": 2441216
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.9810835,
+            "p95_ms": 3.449,
+            "median_peak_rss_bytes": 1785856.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "en-one",
+          "expected_hit_count": 66,
+          "actual_hit_count": 66,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.2798125,
+            "p95_ms": 2.5305,
+            "median_peak_rss_bytes": 2441216.0,
+            "p95_peak_rss_bytes": 2441216
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.8893125,
+            "p95_ms": 3.322792,
+            "median_peak_rss_bytes": 1785856.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "ja-two",
+          "expected_hit_count": 65,
+          "actual_hit_count": 65,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.3386875,
+            "p95_ms": 2.535541,
+            "median_peak_rss_bytes": 2441216.0,
+            "p95_peak_rss_bytes": 2441216
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.9687085,
+            "p95_ms": 3.114041,
+            "median_peak_rss_bytes": 1818624.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "en-two",
+          "expected_hit_count": 64,
+          "actual_hit_count": 64,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.3247705,
+            "p95_ms": 2.641375,
+            "median_peak_rss_bytes": 2441216.0,
+            "p95_peak_rss_bytes": 2441216
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.979375,
+            "p95_ms": 3.159584,
+            "median_peak_rss_bytes": 1802240.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "ja-long",
+          "expected_hit_count": 30,
+          "actual_hit_count": 30,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.300979,
+            "p95_ms": 2.955833,
+            "median_peak_rss_bytes": 2424832.0,
+            "p95_peak_rss_bytes": 2424832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.921125,
+            "p95_ms": 3.303292,
+            "median_peak_rss_bytes": 1818624.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "en-long",
+          "expected_hit_count": 32,
+          "actual_hit_count": 32,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.2777505,
+            "p95_ms": 2.594042,
+            "median_peak_rss_bytes": 2424832.0,
+            "p95_peak_rss_bytes": 2424832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.8927295,
+            "p95_ms": 3.161708,
+            "median_peak_rss_bytes": 1818624.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "mixed-long",
+          "expected_hit_count": 31,
+          "actual_hit_count": 31,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.289021,
+            "p95_ms": 2.53125,
+            "median_peak_rss_bytes": 2424832.0,
+            "p95_peak_rss_bytes": 2424832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 3.0083960000000003,
+            "p95_ms": 3.324541,
+            "median_peak_rss_bytes": 1785856.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "ja-frequent",
+          "expected_hit_count": 66,
+          "actual_hit_count": 66,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.2814585000000003,
+            "p95_ms": 2.563125,
+            "median_peak_rss_bytes": 2408448.0,
+            "p95_peak_rss_bytes": 2441216
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.9209579999999997,
+            "p95_ms": 3.061541,
+            "median_peak_rss_bytes": 1818624.0,
+            "p95_peak_rss_bytes": 1818624
+          }
+        },
+        {
+          "id": "ja-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.266958,
+            "p95_ms": 2.467166,
+            "median_peak_rss_bytes": 2392064.0,
+            "p95_peak_rss_bytes": 2424832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.9311670000000003,
+            "p95_ms": 3.222,
+            "median_peak_rss_bytes": 1802240.0,
+            "p95_peak_rss_bytes": 1802240
+          }
+        },
+        {
+          "id": "en-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.2552085,
+            "p95_ms": 2.629917,
+            "median_peak_rss_bytes": 2392064.0,
+            "p95_peak_rss_bytes": 2424832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.9115835,
+            "p95_ms": 3.239125,
+            "median_peak_rss_bytes": 1769472.0,
+            "p95_peak_rss_bytes": 1802240
+          }
+        },
+        {
+          "id": "mixed-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.2875415,
+            "p95_ms": 2.634333,
+            "median_peak_rss_bytes": 2408448.0,
+            "p95_peak_rss_bytes": 2424832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.9290215,
+            "p95_ms": 3.193,
+            "median_peak_rss_bytes": 1802240.0,
+            "p95_peak_rss_bytes": 1802240
+          }
+        },
+        {
+          "id": "missing",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.279083,
+            "p95_ms": 2.53825,
+            "median_peak_rss_bytes": 2392064.0,
+            "p95_peak_rss_bytes": 2392064
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.8722709999999996,
+            "p95_ms": 3.354916,
+            "median_peak_rss_bytes": 1785856.0,
+            "p95_peak_rss_bytes": 1785856
+          }
+        },
+        {
+          "id": "ja-false-candidate",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.263375,
+            "p95_ms": 2.727125,
+            "median_peak_rss_bytes": 2392064.0,
+            "p95_peak_rss_bytes": 2408448
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.942146,
+            "p95_ms": 3.683167,
+            "median_peak_rss_bytes": 1753088.0,
+            "p95_peak_rss_bytes": 1785856
+          }
+        },
+        {
+          "id": "en-false-candidate",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 2.3005,
+            "p95_ms": 2.844916,
+            "median_peak_rss_bytes": 2392064.0,
+            "p95_peak_rss_bytes": 2408448
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 2.900292,
+            "p95_ms": 3.276375,
+            "median_peak_rss_bytes": 1769472.0,
+            "p95_peak_rss_bytes": 1785856
+          }
+        }
+      ]
+    },
+    {
+      "document_count": 1000,
+      "corpus_bytes": 1059386,
+      "index_bytes": 2807101,
+      "corpus_sha256": "acd186ae54fa3bafed38cae809c939f48085475786de3553de1abd8393558902",
+      "language_counts": {
+        "ja": 334,
+        "en": 333,
+        "mixed": 333
+      },
+      "manifest_path": "$RUN/corpus-1000/manifest.json",
+      "correctness_passed": true,
+      "query_suitability_passed": true,
+      "measurement_validity": {
+        "passed": true,
+        "all_commands_succeeded": true,
+        "binary_unchanged": true,
+        "samples_complete": true
+      },
+      "index": {
+        "count": 5,
+        "median_ms": 24.404833,
+        "p95_ms": 25.690583,
+        "median_peak_rss_bytes": 12763136,
+        "p95_peak_rss_bytes": 12763136
+      },
+      "queries": [
+        {
+          "id": "ja-one",
+          "expected_hit_count": 663,
+          "actual_hit_count": 663,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 7.1551045,
+            "p95_ms": 8.457167,
+            "median_peak_rss_bytes": 9142272.0,
+            "p95_peak_rss_bytes": 9142272
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.4744165,
+            "p95_ms": 21.429,
+            "median_peak_rss_bytes": 3178496.0,
+            "p95_peak_rss_bytes": 3211264
+          }
+        },
+        {
+          "id": "en-one",
+          "expected_hit_count": 666,
+          "actual_hit_count": 666,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.482354000000001,
+            "p95_ms": 7.886,
+            "median_peak_rss_bytes": 9109504.0,
+            "p95_peak_rss_bytes": 9142272
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.5122705,
+            "p95_ms": 20.603916,
+            "median_peak_rss_bytes": 3194880.0,
+            "p95_peak_rss_bytes": 3194880
+          }
+        },
+        {
+          "id": "ja-two",
+          "expected_hit_count": 663,
+          "actual_hit_count": 663,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.7514795,
+            "p95_ms": 8.14625,
+            "median_peak_rss_bytes": 9125888.0,
+            "p95_peak_rss_bytes": 9142272
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.9251875,
+            "p95_ms": 19.885958,
+            "median_peak_rss_bytes": 3178496.0,
+            "p95_peak_rss_bytes": 3211264
+          }
+        },
+        {
+          "id": "en-two",
+          "expected_hit_count": 653,
+          "actual_hit_count": 653,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.8708335,
+            "p95_ms": 8.250625,
+            "median_peak_rss_bytes": 9125888.0,
+            "p95_peak_rss_bytes": 9125888
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.001437500000002,
+            "p95_ms": 21.485625,
+            "median_peak_rss_bytes": 3194880.0,
+            "p95_peak_rss_bytes": 3194880
+          }
+        },
+        {
+          "id": "ja-long",
+          "expected_hit_count": 317,
+          "actual_hit_count": 317,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.494771,
+            "p95_ms": 7.272166,
+            "median_peak_rss_bytes": 9043968.0,
+            "p95_peak_rss_bytes": 9043968
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.727666,
+            "p95_ms": 21.818375,
+            "median_peak_rss_bytes": 3112960.0,
+            "p95_peak_rss_bytes": 3112960
+          }
+        },
+        {
+          "id": "en-long",
+          "expected_hit_count": 317,
+          "actual_hit_count": 317,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.513249500000001,
+            "p95_ms": 7.800709,
+            "median_peak_rss_bytes": 9027584.0,
+            "p95_peak_rss_bytes": 9043968
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.735417,
+            "p95_ms": 21.452,
+            "median_peak_rss_bytes": 3096576.0,
+            "p95_peak_rss_bytes": 3112960
+          }
+        },
+        {
+          "id": "mixed-long",
+          "expected_hit_count": 323,
+          "actual_hit_count": 323,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.438771,
+            "p95_ms": 7.393584,
+            "median_peak_rss_bytes": 9011200.0,
+            "p95_peak_rss_bytes": 9043968
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.5909585,
+            "p95_ms": 20.160459,
+            "median_peak_rss_bytes": 3112960.0,
+            "p95_peak_rss_bytes": 3112960
+          }
+        },
+        {
+          "id": "ja-frequent",
+          "expected_hit_count": 666,
+          "actual_hit_count": 666,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.6396875,
+            "p95_ms": 7.291834,
+            "median_peak_rss_bytes": 9109504.0,
+            "p95_peak_rss_bytes": 9142272
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.749082999999999,
+            "p95_ms": 19.966833,
+            "median_peak_rss_bytes": 3211264.0,
+            "p95_peak_rss_bytes": 3211264
+          }
+        },
+        {
+          "id": "ja-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.134854000000001,
+            "p95_ms": 7.041042,
+            "median_peak_rss_bytes": 8929280.0,
+            "p95_peak_rss_bytes": 8962048
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.470521,
+            "p95_ms": 20.664542,
+            "median_peak_rss_bytes": 2998272.0,
+            "p95_peak_rss_bytes": 3014656
+          }
+        },
+        {
+          "id": "en-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.091229,
+            "p95_ms": 7.085416,
+            "median_peak_rss_bytes": 8962048.0,
+            "p95_peak_rss_bytes": 8962048
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.095916500000001,
+            "p95_ms": 19.324167,
+            "median_peak_rss_bytes": 2981888.0,
+            "p95_peak_rss_bytes": 3014656
+          }
+        },
+        {
+          "id": "mixed-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.153479,
+            "p95_ms": 7.430917,
+            "median_peak_rss_bytes": 8929280.0,
+            "p95_peak_rss_bytes": 8962048
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.522542,
+            "p95_ms": 21.550625,
+            "median_peak_rss_bytes": 2998272.0,
+            "p95_peak_rss_bytes": 3014656
+          }
+        },
+        {
+          "id": "missing",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.2745415,
+            "p95_ms": 7.570542,
+            "median_peak_rss_bytes": 8896512.0,
+            "p95_peak_rss_bytes": 8929280
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 14.692,
+            "p95_ms": 30.136375,
+            "median_peak_rss_bytes": 2965504.0,
+            "p95_peak_rss_bytes": 2998272
+          }
+        },
+        {
+          "id": "ja-false-candidate",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.3152705000000005,
+            "p95_ms": 7.55825,
+            "median_peak_rss_bytes": 8912896.0,
+            "p95_peak_rss_bytes": 8945664
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.187792,
+            "p95_ms": 20.582167,
+            "median_peak_rss_bytes": 2998272.0,
+            "p95_peak_rss_bytes": 2998272
+          }
+        },
+        {
+          "id": "en-false-candidate",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 6.3537289999999995,
+            "p95_ms": 7.440792,
+            "median_peak_rss_bytes": 8945664.0,
+            "p95_peak_rss_bytes": 8945664
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 15.1139165,
+            "p95_ms": 20.570666,
+            "median_peak_rss_bytes": 2965504.0,
+            "p95_peak_rss_bytes": 2998272
+          }
+        }
+      ]
+    },
+    {
+      "document_count": 10000,
+      "corpus_bytes": 10633680,
+      "index_bytes": 28111827,
+      "corpus_sha256": "9a908511edb54171b57dc13ecd24bee9e37acc0d3d6586c9af678dd809badec8",
+      "language_counts": {
+        "ja": 3334,
+        "en": 3333,
+        "mixed": 3333
+      },
+      "manifest_path": "$RUN/corpus-10000/manifest.json",
+      "correctness_passed": true,
+      "query_suitability_passed": true,
+      "measurement_validity": {
+        "passed": true,
+        "all_commands_succeeded": true,
+        "binary_unchanged": true,
+        "samples_complete": true
+      },
+      "index": {
+        "count": 5,
+        "median_ms": 256.149291,
+        "p95_ms": 322.888208,
+        "median_peak_rss_bytes": 117424128,
+        "p95_peak_rss_bytes": 117424128
+      },
+      "queries": [
+        {
+          "id": "ja-one",
+          "expected_hit_count": 6661,
+          "actual_hit_count": 6661,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 50.090854,
+            "p95_ms": 52.170417,
+            "median_peak_rss_bytes": 76267520.0,
+            "p95_peak_rss_bytes": 76267520
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 136.310104,
+            "p95_ms": 170.406541,
+            "median_peak_rss_bytes": 16351232.0,
+            "p95_peak_rss_bytes": 16384000
+          }
+        },
+        {
+          "id": "en-one",
+          "expected_hit_count": 6666,
+          "actual_hit_count": 6666,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 44.639354,
+            "p95_ms": 45.87925,
+            "median_peak_rss_bytes": 76201984.0,
+            "p95_peak_rss_bytes": 76234752
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 130.40218750000003,
+            "p95_ms": 173.844041,
+            "median_peak_rss_bytes": 16318464.0,
+            "p95_peak_rss_bytes": 16351232
+          }
+        },
+        {
+          "id": "ja-two",
+          "expected_hit_count": 6661,
+          "actual_hit_count": 6661,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 45.9377915,
+            "p95_ms": 47.149084,
+            "median_peak_rss_bytes": 76234752.0,
+            "p95_peak_rss_bytes": 76267520
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 133.923396,
+            "p95_ms": 176.392458,
+            "median_peak_rss_bytes": 16351232.0,
+            "p95_peak_rss_bytes": 16384000
+          }
+        },
+        {
+          "id": "en-two",
+          "expected_hit_count": 6548,
+          "actual_hit_count": 6548,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 46.2073335,
+            "p95_ms": 49.791625,
+            "median_peak_rss_bytes": 76120064.0,
+            "p95_peak_rss_bytes": 76152832
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 137.30560400000002,
+            "p95_ms": 186.096917,
+            "median_peak_rss_bytes": 16252928.0,
+            "p95_peak_rss_bytes": 16285696
+          }
+        },
+        {
+          "id": "ja-long",
+          "expected_hit_count": 3165,
+          "actual_hit_count": 3165,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 43.7114995,
+            "p95_ms": 47.028958,
+            "median_peak_rss_bytes": 75300864.0,
+            "p95_peak_rss_bytes": 75300864
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 132.29806250000001,
+            "p95_ms": 161.677208,
+            "median_peak_rss_bytes": 15417344.0,
+            "p95_peak_rss_bytes": 15433728
+          }
+        },
+        {
+          "id": "en-long",
+          "expected_hit_count": 3223,
+          "actual_hit_count": 3223,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 44.1639375,
+            "p95_ms": 46.235834,
+            "median_peak_rss_bytes": 75268096.0,
+            "p95_peak_rss_bytes": 75300864
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 132.4370625,
+            "p95_ms": 176.718042,
+            "median_peak_rss_bytes": 15417344.0,
+            "p95_peak_rss_bytes": 15417344
+          }
+        },
+        {
+          "id": "mixed-long",
+          "expected_hit_count": 3213,
+          "actual_hit_count": 3213,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 43.632271,
+            "p95_ms": 44.839666,
+            "median_peak_rss_bytes": 75284480.0,
+            "p95_peak_rss_bytes": 75317248
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 132.760083,
+            "p95_ms": 183.00925,
+            "median_peak_rss_bytes": 15417344.0,
+            "p95_peak_rss_bytes": 15450112
+          }
+        },
+        {
+          "id": "ja-frequent",
+          "expected_hit_count": 6661,
+          "actual_hit_count": 6661,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 46.0083125,
+            "p95_ms": 47.613,
+            "median_peak_rss_bytes": 76267520.0,
+            "p95_peak_rss_bytes": 76300288
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 134.00120850000002,
+            "p95_ms": 179.498333,
+            "median_peak_rss_bytes": 16384000.0,
+            "p95_peak_rss_bytes": 16416768
+          }
+        },
+        {
+          "id": "ja-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 40.269958,
+            "p95_ms": 41.771291,
+            "median_peak_rss_bytes": 74399744.0,
+            "p95_peak_rss_bytes": 74399744
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 130.800146,
+            "p95_ms": 178.944625,
+            "median_peak_rss_bytes": 14499840.0,
+            "p95_peak_rss_bytes": 14532608
+          }
+        },
+        {
+          "id": "en-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 40.7042915,
+            "p95_ms": 42.507625,
+            "median_peak_rss_bytes": 74399744.0,
+            "p95_peak_rss_bytes": 74399744
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 131.3379375,
+            "p95_ms": 171.454458,
+            "median_peak_rss_bytes": 14532608.0,
+            "p95_peak_rss_bytes": 14532608
+          }
+        },
+        {
+          "id": "mixed-rare",
+          "expected_hit_count": 1,
+          "actual_hit_count": 1,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 40.3404165,
+            "p95_ms": 42.229917,
+            "median_peak_rss_bytes": 74366976.0,
+            "p95_peak_rss_bytes": 74399744
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 131.570438,
+            "p95_ms": 180.057833,
+            "median_peak_rss_bytes": 14516224.0,
+            "p95_peak_rss_bytes": 14532608
+          }
+        },
+        {
+          "id": "missing",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 40.433854,
+            "p95_ms": 42.75125,
+            "median_peak_rss_bytes": 74366976.0,
+            "p95_peak_rss_bytes": 74366976
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 131.566417,
+            "p95_ms": 178.138916,
+            "median_peak_rss_bytes": 14483456.0,
+            "p95_peak_rss_bytes": 14516224
+          }
+        },
+        {
+          "id": "ja-false-candidate",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 40.4672915,
+            "p95_ms": 43.05125,
+            "median_peak_rss_bytes": 74350592.0,
+            "p95_peak_rss_bytes": 74383360
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 132.4576255,
+            "p95_ms": 174.402833,
+            "median_peak_rss_bytes": 14483456.0,
+            "p95_peak_rss_bytes": 14516224
+          }
+        },
+        {
+          "id": "en-false-candidate",
+          "expected_hit_count": 0,
+          "actual_hit_count": 0,
+          "verification": {
+            "stdout_equal": true,
+            "oracle_equal": true,
+            "intent_passed": true
+          },
+          "search": {
+            "count": 30,
+            "median_ms": 40.391354,
+            "p95_ms": 41.405625,
+            "median_peak_rss_bytes": 74383360.0,
+            "p95_peak_rss_bytes": 74383360
+          },
+          "scan": {
+            "count": 30,
+            "median_ms": 134.2871255,
+            "p95_ms": 181.155125,
+            "median_peak_rss_bytes": 14516224.0,
+            "p95_peak_rss_bytes": 14516224
+          }
+        }
+      ]
+    }
+  ],
+  "raw_result_sha256": "4f9cd2e3b739da0f115100860e134e5e48fb314059f34c62aa7c69a1c6f07d64",
+  "exporter_sha256": "c13d403ce73efcf19bdc043c7eb7ca534b139bf5031264f6b50d59e69018b286",
+  "supplemental_hardware": {
+    "cpu_model": "Apple M4",
+    "memory_bytes": 17179869184,
+    "logical_cpu_count": 10,
+    "source": "Read separately with sysctl on the same machine; runner hardware metadata unavailable due to permissions"
+  }
+}
