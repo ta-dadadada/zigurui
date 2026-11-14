@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "scope": "synthetic-correctness-no-performance-measurement",
+  "binary_sha256": "768b603d367a109f3790a02ca2edcdd64e9ca006df54a431bec426ac39fac264",
+  "baseline_sha256": "774d9f23cae1b8a24103b64b7cf167db37773bde50f93097aa8e198e8b062d98",
+  "document_count": 10,
+  "frontmatter_count": 4,
+  "builtin_fields": [
+    {
+      "selector": "file:/name",
+      "types": [
+        "string"
+      ],
+      "present": 10,
+      "missing": 0,
+      "null_count": 0,
+      "element_types": []
+    },
+    {
+      "selector": "file:/path",
+      "types": [
+        "string"
+      ],
+      "present": 10,
+      "missing": 0,
+      "null_count": 0,
+      "element_types": []
+    }
+  ],
+  "frontmatter_fields_unchanged": true,
+  "schema_empty_passed": true,
+  "search_cases": 79,
+  "error_cases": 18,
+  "snapshot_cases": 5,
+  "regression_cases": 8,
+  "index_identity": true,
+  "binary_unchanged": true,
+  "raw_result_sha256": "e58c0a4ba9d30dfee413e1b6d4af6ff064a1bb54aa34a514f81f9e49be975178",
+  "runner_sha256": "f5d95feb81dec84f96e0184ca590c591a4c6982695a14f4707cc737ce1f058b0"
+}

@@ -19,6 +19,10 @@
 
 未コミットのv2・正規化検索差分を含め、既存の2ターゲットをReleaseFastで構築し、アーカイブ構造・静的Linux ELF・チェックサムを確認した。両アーカイブの `LICENSE-utf8proc.md` はvendorの正本とバイト単位で一致した。macOSアーカイブから取り出した実行ファイルでCLI結合テスト5件、梱包処理の単体テスト10件が成功した。Linuxでの実行とGitHub上の実行は未検証。`v0.1.0-alpha.2` はローカルの梱包検証用の名前であり、タグの作成・push・公開はしていない。
 
+## frontmatter追加時のローカル検証（2026-11-14）
+
+正規化の局所改善・AND・frontmatterを含む最終ソースから、macOS arm64とLinux x86_64-muslをReleaseFast・stripで構築した。両アーカイブの構造・チェックサム・Linuxの静的ELFと、utf8proc/libyamlのライセンスが正本と一致することを確認した。通常設定の統合チェックに成功し、その後のfilter早期拒否と補足テストを含めReleaseSafeの全49単体テストも成功した。CLI・梱包・独立検索評価の詳細は[frontmatterの評価](frontmatter-evaluation.md)を参照。Linux上の実行とC内部mallocへの確保失敗注入は未実施。タグ作成・push・公開はしていない。
+
 ## バージョンと配布物
 
 タグは64文字以内で、`v0.1.0-alpha.1` のような `vX.Y.Z-(alpha|beta|rc).N` 形式に限定する。数値の先頭ゼロは認めず、安定版形式の `v1.0.0` は受け付けない。当面はすべてGitHubのプレリリースとし、Latestには設定しない。
@@ -31,7 +35,7 @@ zigurui-v0.1.0-alpha.1-linux-x86_64.tar.gz
 SHA256SUMS
 ```
 
-各アーカイブは同名のディレクトリを1つ含み、その中に実行ファイル `zigurui`、`README.md`、必須の `LICENSE-utf8proc.md` を配置する。依存ライセンスの正本は [vendor/utf8proc/LICENSE.md](../vendor/utf8proc/LICENSE.md) で、梱包元での欠落・配布アーカイブ内での欠落を拒否する。utf8procは静的に組み込む。`LICENSE`（`.md` / `.txt` 付きも含む）や `COPYING` がリポジトリに存在する場合は同梱する。実行ファイルはReleaseFastでビルドし、デバッグ情報を除去する。アーカイブには元の所有者名・生成時刻を残さない。開発用キャッシュ、ベンチマークのraw・生成文書・索引、ローカル資料は同梱しない。
+各アーカイブは同名のディレクトリを1つ含み、その中に実行ファイル `zigurui`、`README.md`、必須の `LICENSE-utf8proc.md` と `LICENSE-libyaml.txt` を配置する。依存ライセンスの正本は [vendor/utf8proc/LICENSE.md](../vendor/utf8proc/LICENSE.md) と [vendor/libyaml/License](../vendor/libyaml/License) で、梱包元での欠落・配布アーカイブ内での欠落を拒否する。utf8procとlibyamlは静的に組み込む。`LICENSE`（`.md` / `.txt` 付きも含む）や `COPYING` がリポジトリに存在する場合は同梱する。実行ファイルはReleaseFastでビルドし、デバッグ情報を除去する。アーカイブには元の所有者名・生成時刻を残さない。開発用キャッシュ、ベンチマークのraw・生成文書・索引、ローカル資料は同梱しない。
 
 ## ダウンロード後の確認
 
@@ -41,10 +45,11 @@ SHA256SUMS
 awk '$2 == "zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz"' SHA256SUMS \
   | shasum -a 256 -c -
 tar -xzf zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz
-./zigurui-v0.1.0-alpha.1-macos-arm64/zigurui help
+export PATH="$PWD/zigurui-v0.1.0-alpha.1-macos-arm64:$PATH"
+zigurui help
 ```
 
-Linuxでは `linux-x86_64` のファイルを選び、同じ確認を `sha256sum -c -` で行う。チェックサムが一致した後に解凍・起動する。SHA-256はダウンロードしたファイルと公開された配布物の一致を確認するもので、配布者の署名ではない。
+Linuxでは `linux-x86_64` のファイルを選び、同じ確認を `sha256sum -c -` で行う。チェックサムが一致した後に解凍し、展開先を `PATH` に追加して起動する。上記の `export` は現在のシェルだけに適用される。SHA-256はダウンロードしたファイルと公開された配布物の一致を確認するもので、配布者の署名ではない。
 
 文書の索引作成・検索コマンドは[READMEの使い方](../README.md#使い方)を参照する。CLIには版番号の表示コマンドがないため、入手したタグとアーカイブ名を記録しておく。
 

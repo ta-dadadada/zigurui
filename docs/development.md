@@ -1,5 +1,85 @@
 # 開発環境の運用
 
+利用者向けの導入と検索例は [README](../README.md) を参照。この文書は開発環境・検証・保守の入口とする。コマンドはリポジトリのルートで実行する。
+
+## 開発環境の構築
+
+[mise](https://mise.jdx.dev/getting-started.html) とPython 3を用意する。ツールの固定バージョンは [mise.toml](../mise.toml) を正本とする。
+
+```sh
+mise trust
+mise install
+mise exec -- zig version
+```
+
+Git hookを未導入の場合は、既存hookと共有範囲を確認してから `mise exec -- lefthook install` を実行する。既存hookを無条件に上書きしない。続いて `mise run check` を実行する。linked worktreeでは [worktreeの準備](#worktreeの準備) を使う。
+
+## 開発と検証
+
+| コマンド | 内容 |
+| --- | --- |
+| `mise run build` | ビルド。成果物は `zig-out/bin/zigurui` |
+| `mise run run` | ビルドしてヘルプを表示 |
+| `mise run test` | 検索・保存形式・抜粋の単体テスト |
+| `mise run fmt` | Zigファイルを整形 |
+| `mise run fmt:check` | 整形の検査 |
+| `mise run lint:workflows` | actionlintで全GitHub Actionsワークフローを検査 |
+| `mise run check` | 整形・ワークフローの検査・ビルド・単体テスト |
+| `mise exec -- lefthook validate` | Git hookの設定を検証 |
+| `mise exec -- lefthook run pre-commit --all-files` | コミット前の検査を作業ツリー全体に手動実行 |
+| `python3 scripts/test-cli.py` | ビルド済み実行ファイルの結合テスト（Python 3が必要） |
+| `python3 scripts/test-benchmark-corpus.py` | 合成文書・独立した正解判定の単体テスト |
+| `python3 scripts/test-benchmark.py` | 時間・RSSの計測処理の単体テスト |
+| `python3 scripts/test-benchmark-report.py` | 公開用要約の生成処理の単体テスト |
+
+コミット前のGit hookは `lefthook.yml` を正本とし、整形の検査とactionlintだけを実行する。自動整形や自動stageは行わない。ビルド・単体テストは `mise run check`、結合テスト・ベンチマークまで含む検証はCIで行う。
+
+hookは作業ツリー全体を検査するため、部分stageした場合にコミット対象だけが正しいことを保証するものではない。stageした差分も確認してからコミットする。
+
+単体テストは公式Unicode適合データ、独立した位置期待値、索引/scanの一致、確保失敗を検証する。
+
+結合テストは一時文書を作り、索引検索と全文走査の一致、文書を変更しないこと、保存時点の本文での検索、再構築による追加・削除の反映、シンボリックリンクの除外、エラー時の既存索引維持を確認する。
+
+Zigのオプションを直接指定する場合は、例えば `mise exec -- zig build -Doptimize=ReleaseFast` を使う。
+
+固定seedの合成文書を使う検索の正しさ・速度・容量の比較は、[ベンチマークの条件と結果](benchmarks.md)を参照する。
+
+[GitHub ActionsのCI](../.github/workflows/ci.yml)はUbuntu上で検査・テストの `check` とReleaseFastの `benchmark` を、依存関係のない別ジョブで実行する。CIの測定条件は100・1,000文書、索引構築3回、各検索方式5回、予熱1回とし、GitHubの実行画面で概要と公開用の要約JSONを確認する。生の測定データや個人パスを含むmetadataはartifactへ保存しない。性能の閾値や過去結果との自動比較は設けない。
+
+独立した処理の並列化は待ち時間の短縮を狙うものだが、セットアップの重複でrunnerの総使用時間が増える場合がある。GitHub上での所要時間や使用量は未計測。
+
+CI相当のコマンドをmacOSで確認した記録がある。個別の実行状況はGitHub Actionsの実行結果で確認する。
+
+### 機能別の独立評価
+
+追加機能の評価ツールと再実行コマンドは次の記録に集約する。通常のCIがこれらをすべて実行するわけではないため、変更した機能に応じて確認する。
+
+- [正規化検索の性能・正しさ](normalization-performance.md)
+- [AND検索](search-and-evaluation.md)
+- [frontmatter](frontmatter-evaluation.md)
+- [ファイル名・パス](builtin-metadata-evaluation.md)
+- [frontmatterの失敗診断](frontmatter-diagnostics-evaluation.md)
+
+## 実装の構成と未実装の機能
+
+- `src/normalize.zig` / `src/unicode_bridge.c`: Unicode正規化と原文バイト区間の由来追跡
+- `src/search.zig`: コードポイント2-gram、転置インデックス、索引検索、基準となる全文走査
+- `src/frontmatter.zig` / `src/yaml_bridge.c`: 型付きメタデータ、スキーマ集計、YAML解析
+- `src/profile.zig`: 専用ビルドの時間・件数計測
+- `src/storage.zig`: バージョン付き索引形式の符号化・復号・検査
+- `src/main.zig`: CLI、文書の収集、原子的な保存、検索結果の表示
+- `scripts/test-cli.py`: 実行ファイルの結合テスト
+- `mise.toml` / `build.zig` / `build.zig.zon`: ツール・タスク・ビルドの定義
+- `.local/`: コンセプト設計書などのローカル資料・一時ファイル（Git管理対象外）
+
+索引の構築・検索・保存を実装し、合成文書で正しさ・速度・容量を比較している。複数語AND・frontmatter・ファイル情報による絞り込みも実装済み。ランキング・見出しの重み付け・差分更新・監視は未実装。現時点の実行確認はmacOSで行っている。
+
+## 保守・配布
+
+- [依存更新とセキュリティ検査](security-checks.md): Renovate・Trivyの対象、判定基準、ローカル確認、外部App設定。
+- [プレリリースの配布と検証](releases.md): 配布対象、梱包、公開前の確認と承認。
+- [Unicode依存](../vendor/utf8proc/SOURCE.md) / [YAML依存](../vendor/libyaml/SOURCE.md): 固定版、取得元、ライセンス、更新手順。
+
 ## Codexの役割
 
 共通ルールは [AGENTS.md](../AGENTS.md)、役割固有の指示とモデル・推論量は [.codex/agents/](../.codex/agents/) を正本とする。advisorは設計判断の前提検討、Zigレビューは所有権と失敗経路の追跡を重視し、推論量を高める。検索評価は既存の評価手順と独立した期待結果の照合を中心に、標準的な推論量から始める。実案件での品質・所要時間を見て設定を見直す。

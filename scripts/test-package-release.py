@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from package_release import TARGETS, aggregate, archive_stem, build_target, package, stage_target, target_matrix, validate_tag, verify
+from package_release import DEPENDENCY_LICENSES, TARGETS, aggregate, archive_stem, build_target, package, stage_target, target_matrix, validate_tag, verify
 
 
 class ReleasePackageTest(unittest.TestCase):
@@ -21,8 +21,10 @@ class ReleasePackageTest(unittest.TestCase):
         self.repo.mkdir()
         (self.repo / "README.md").write_text("# zigurui\n")
         (self.repo / "LICENSE").write_text("test license\n")
-        (self.repo / "vendor" / "utf8proc").mkdir(parents=True)
-        (self.repo / "vendor" / "utf8proc" / "LICENSE.md").write_text("dependency license\n")
+        for name, source in DEPENDENCY_LICENSES.items():
+            path = self.repo / source
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"dependency license {name}\n")
         (self.repo / "private.md").write_text("do not distribute\n")
         macos = struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0)
         linux = bytearray(64 + 56)
@@ -39,10 +41,15 @@ class ReleasePackageTest(unittest.TestCase):
         self.tag = "v0.1.0-alpha.1"
 
     def test_dependency_license_is_required_before_packaging(self):
-        (self.repo / "vendor" / "utf8proc" / "LICENSE.md").rename(self.root / "retained-license.md")
-        with self.assertRaises(FileNotFoundError):
-            package(self.tag, self.binaries, self.root / "missing-license", self.repo)
-        self.assertFalse((self.root / "missing-license").exists())
+        for name, source in DEPENDENCY_LICENSES.items():
+            with self.subTest(license=name):
+                original = self.repo / source
+                retained = self.root / f"retained-{name}"
+                original.rename(retained)
+                with self.assertRaises(FileNotFoundError):
+                    package(self.tag, self.binaries, self.root / "missing-license", self.repo)
+                self.assertFalse((self.root / "missing-license").exists())
+                retained.rename(original)
 
     def test_only_prerelease_semver_is_accepted(self):
         for tag in (self.tag, "v1.2.3-beta.0", "v2.0.0-rc.1"):
@@ -59,12 +66,13 @@ class ReleasePackageTest(unittest.TestCase):
             stem = archive_stem(self.tag, target)
             archive = first / f"{stem}.tar.gz"
             with tarfile.open(archive) as tar:
-                self.assertEqual(set(tar.getnames()), {f"{stem}/zigurui", f"{stem}/README.md", f"{stem}/LICENSE", f"{stem}/LICENSE-utf8proc.md"})
+                self.assertEqual(set(tar.getnames()), {f"{stem}/zigurui", f"{stem}/README.md", f"{stem}/LICENSE"} | {f"{stem}/{name}" for name in DEPENDENCY_LICENSES})
                 for member in tar.getmembers():
                     self.assertEqual((member.uid, member.gid, member.uname, member.gname, member.mtime), (0, 0, "", "", 0))
                 self.assertEqual(tar.getmember(f"{stem}/zigurui").mode, 0o755)
                 self.assertEqual(tar.extractfile(f"{stem}/zigurui").read(), self.binaries[target].read_bytes())
-                self.assertEqual(tar.extractfile(f"{stem}/LICENSE-utf8proc.md").read(), (self.repo / "vendor" / "utf8proc" / "LICENSE.md").read_bytes())
+                for name, source in DEPENDENCY_LICENSES.items():
+                    self.assertEqual(tar.extractfile(f"{stem}/{name}").read(), (self.repo / source).read_bytes())
             self.assertIn(hashlib.sha256(archive.read_bytes()).hexdigest(), (first / "SHA256SUMS").read_text())
         verify(self.tag, first)
 

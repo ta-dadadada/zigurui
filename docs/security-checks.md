@@ -7,7 +7,7 @@
 - Zig、actionlint、Lefthookのバージョンは `mise.toml` の `[tools]` を唯一の設定元とする。workflow側には転記しない。
 - GitHub ActionsはコミットSHAとバージョン注釈を更新し、SHA固定を維持する。
 - `aquasecurity/trivy-action` の `with.version` も標準managerの対象となる。Trivy本体の固定バージョンは `.github/workflows/security.yml` を設定元とする。
-- Pythonスクリプトは標準ライブラリだけを使うため、pip managerは追加しない。Unicode処理は固定版utf8procをvendorとして同梱する。現行Renovateの対象外であり、[Unicode依存の更新手順](../vendor/utf8proc/SOURCE.md)に従い手動で更新・適合検証する。
+- Pythonスクリプトは標準ライブラリだけを使うため、pip managerは追加しない。Unicode処理は固定版utf8procをvendorとして同梱する。現行Renovateの対象外であり、[Unicode依存の更新手順](../vendor/utf8proc/SOURCE.md)に従い手動で更新・適合検証する。 libyamlも手動更新の対象で、固定版・上流depth修正・hash・更新時の検証は [vendor/libyaml/SOURCE.md](../vendor/libyaml/SOURCE.md) に記録する。
 
 標準managerが対象を扱えるので、独自の正規表現managerは追加していない。Dependabotの設定も併置しない。対応範囲は公式の [mise manager](https://docs.renovatebot.com/modules/manager/mise/) と [GitHub Actions manager](https://docs.renovatebot.com/modules/manager/github-actions/) を参照する。
 

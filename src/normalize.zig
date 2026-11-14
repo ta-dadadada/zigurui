@@ -1,6 +1,7 @@
 //! 検索用のNFKC→default full case folding→NFKCと、原文バイト区間の対応を担う。
 //! Unicodeデータ・分解・合成対は固定版utf8procを使い、順序制御と由来の追跡を行う。
 const std = @import("std");
+const profile = @import("profile.zig");
 extern fn zigurui_decompose(cp: i32, out: ?[*]i32, capacity: isize, fold: bool) isize;
 extern fn zigurui_combining_class(cp: i32) u8;
 extern fn zigurui_compose_pair(first: i32, second: i32) i32;
@@ -37,6 +38,7 @@ pub const Result = struct {
         var span: Span = .{ .start = std.math.maxInt(usize), .end = 0 };
         var offset: usize = 0;
         for (self.points) |point| {
+            profile.add(.span_points_visited, 1);
             const next = offset + (std.unicode.utf8CodepointSequenceLength(point.cp) catch unreachable);
             if (offset >= end) break;
             if (next > start) {
@@ -99,14 +101,19 @@ fn mapped(allocator: Allocator, input: []const Point, fold: bool, compose: bool)
     errdefer output.deinit(allocator);
     var scratch: std.ArrayList(i32) = .empty;
     defer scratch.deinit(allocator);
+    var small: [8]i32 = undefined;
     for (input) |point| {
-        const needed = zigurui_decompose(point.cp, null, 0, fold);
+        const needed = zigurui_decompose(point.cp, &small, small.len, fold);
         if (needed < 0) return error.InvalidUnicodeData;
         const count: usize = @intCast(needed);
         if (count > max_codepoints - output.items.len) return error.NormalizationTooLarge;
-        try scratch.resize(allocator, count);
-        if (zigurui_decompose(point.cp, scratch.items.ptr, needed, fold) != needed) return error.InvalidUnicodeData;
-        for (scratch.items) |cp| {
+        const decomposed = if (count <= small.len) small[0..count] else blk: {
+            // 容量不足時の部分出力は使わず、必要量を確保して全体を書き直す。
+            try scratch.resize(allocator, count);
+            if (zigurui_decompose(point.cp, scratch.items.ptr, needed, fold) != needed) return error.InvalidUnicodeData;
+            break :blk scratch.items;
+        };
+        for (decomposed) |cp| {
             try output.append(allocator, .{ .cp = @intCast(cp), .ccc = zigurui_combining_class(cp), .start = point.start, .end = point.end });
         }
     }
@@ -190,6 +197,24 @@ fn allocationScenario(allocator: Allocator) !void {
 
 test "正規化のallocation failureで途中の所有メモリを残さない" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationScenario, .{});
+}
+
+fn fallbackAllocationScenario(allocator: Allocator) !void {
+    var result = try transform(allocator, "ﷺ");
+    defer result.deinit();
+    try std.testing.expectEqualStrings("صلى الله عليه وسلم", result.text);
+    try std.testing.expectEqual(@as(usize, 18), result.points.len);
+    for (result.points) |point| {
+        try std.testing.expectEqual(@as(u32, 0), point.start);
+        try std.testing.expectEqual(@as(u32, 3), point.end);
+    }
+    try std.testing.expectEqual(Span{ .start = 0, .end = 3 }, result.originalSpan(0, result.text.len));
+}
+
+test "8コードポイントを超える分解は全量再試行し確保失敗でも解放する" {
+    // U+FDFAは18コードポイントへ展開し、スタック領域からの切替を通る。
+    try fallbackAllocationScenario(std.testing.allocator);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, fallbackAllocationScenario, .{});
 }
 
 fn expectExpansionLimit(cp: u21, fold: bool, expected: [2]u21) !void {

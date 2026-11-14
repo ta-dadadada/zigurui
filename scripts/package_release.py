@@ -16,7 +16,7 @@ import tarfile
 REPOSITORY = Path(__file__).resolve().parent.parent
 TARGETS = {"macos-arm64": "aarch64-macos", "linux-x86_64": "x86_64-linux-musl"}
 LICENSE_NAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING")
-DEPENDENCY_LICENSES = {"LICENSE-utf8proc.md": "vendor/utf8proc/LICENSE.md"}
+DEPENDENCY_LICENSES = {"LICENSE-utf8proc.md": "vendor/utf8proc/LICENSE.md", "LICENSE-libyaml.txt": "vendor/libyaml/License"}
 TAG_PATTERN = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*)", re.ASCII)
 TARGET_FILES = {"zigurui", "target.json"}
 PRIVATE_MARKERS = (b"/Users/", b"/home/", b"/root/", b"/private/var/folders/", b".debug_info", b"__DWARF")

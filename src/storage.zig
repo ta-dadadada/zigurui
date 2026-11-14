@@ -2,6 +2,7 @@
 //! ファイル操作は呼び出し側が担い、ここではバイト列とメモリ所有権を扱う。
 
 const std = @import("std");
+const profile = @import("profile.zig");
 const search = @import("search.zig");
 const normalize = @import("normalize.zig");
 
@@ -68,6 +69,8 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !StoredIndex {
 /// 成功・失敗のいずれでも入力を消費するため、呼び出し側はbytesを解放・再利用しない。
 /// 成功後はStoredIndex.deinitが入力全体を解放する。検証条件とエラーはdecodeと同じ。
 pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []u8) !StoredIndex {
+    const previous = profile.enter(.decode);
+    defer profile.leave(previous);
     errdefer allocator.free(bytes);
     var header: Reader = .{ .bytes = bytes };
     if (!std.mem.eql(u8, try header.take(magic.len), magic)) return error.InvalidIndex;
@@ -75,7 +78,11 @@ pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []u8) !StoredIndex {
     const payload_len = try header.length();
     const expected_checksum = try header.int(u64);
     if (payload_len != bytes.len - header_size) return error.InvalidIndex;
-    if (checksum(bytes[header_size..]) != expected_checksum) return error.InvalidIndex;
+    {
+        const before_checksum = profile.enter(.checksum);
+        defer profile.leave(before_checksum);
+        if (checksum(bytes[header_size..]) != expected_checksum) return error.InvalidIndex;
+    }
 
     var reader: Reader = .{ .bytes = bytes[header_size..] };
     const document_count = try reader.length();
