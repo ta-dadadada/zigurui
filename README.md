@@ -26,6 +26,8 @@ curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/in
 
 既定の配置先は `~/.local/bin`。PATHに追加して以下の例を実行する。更新時も希望する版を指定して再実行する。版の指定は必須で、自動的に最新版を選ばない。
 
+`update` を含む版では `zigurui update --version <tag> --channel prerelease` でも同じ導入先を更新できる。インストーラの管理対象だけが更新され、設定・索引は保持される。公開済みのalpha.3にはこのコマンドは含まれない。詳細は [CLIからの更新](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#cliからの更新) を参照。
+
 公開版は [Releases](https://github.com/ta-dadadada/zigurui/releases)、スクリプトを保存して確認する方法・更新・復旧・アンインストールは [利用ガイド](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#インストール更新) を参照。ソースから使う場合は [ビルド手順](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#ソースからビルドする) を参照。
 
 ## 使い方

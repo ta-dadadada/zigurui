@@ -37,6 +37,9 @@ jobs:
       - name: Test CLI
         run: python3 scripts/test-cli.py
 
+      - name: Test managed binary update without network access
+        run: python3 scripts/test-update.py
+
       - name: Test benchmark corpus and independent oracle
         run: python3 scripts/test-benchmark-corpus.py
 
