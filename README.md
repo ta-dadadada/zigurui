@@ -1,32 +1,31 @@
 # zigurui
 
-ローカルのMarkdownを対象に、索引の構築・検索・保存をZigで自作する検索エンジン。
+ローカルのMarkdownを対象に、索引の構築・検索・保存をZigで自作する検索エンジン。日本語・英語の部分一致検索に加え、表記ゆれを揃えた検索、複数語句のAND、frontmatterやファイル情報による絞り込みができる。
 
-日本語・英語を含む文書をCLIから部分一致で検索できる。Unicodeコードポイント単位の2-gram転置インデックスで候補を絞り、同じ検索表現で連続した一致を確認する。既定は原文の完全な部分一致で、`--mode normalized` で全角・半角・大小文字などを揃えられる。検索表現が1コードポイントの検索語は全文走査に切り替える。全文走査を独立したコマンドでも実行し、索引検索と比較できる。
+## インストール
 
-## セットアップ
+### ソースからビルドする
 
-[mise](https://mise.jdx.dev/getting-started.html) をインストールしてから、リポジトリのルートで実行する。
+Gitと [mise](https://mise.jdx.dev/getting-started.html) を用意し、次を実行する。利用するだけならGit hookの導入や開発用テストは不要。
 
 ```sh
+git clone https://github.com/ta-dadadada/zigurui.git
+cd zigurui
 mise trust
-mise install
-mise exec -- lefthook install
-mise exec -- zig version
-mise run check
+mise install zig
+mise run build
+./zig-out/bin/zigurui help
 ```
 
-開発ツールのバージョンは `mise.toml` の `[tools]` を正本として固定している。固定版utf8procとlibyamlを同梱ソースから静的に組み込む。実行環境への追加ライブラリのインストールは不要。版・ライセンス・更新手順は [Unicode依存](vendor/utf8proc/SOURCE.md) と [YAML依存](vendor/libyaml/SOURCE.md) を参照。
-シェルにmiseを有効化していなくても、`mise run` または `mise exec --` 経由で利用できる。
+実行ファイルは `zig-out/bin/zigurui` に生成される。固定版utf8procとlibyamlを静的に組み込むため、実行環境への追加ライブラリのインストールは不要。シェルにmiseを有効化していなくても、上記コマンドでビルドできる。
 
-Codexの役割分担、linked worktreeのセットアップ、キャッシュの分離、測定時の協調は [開発環境の運用](docs/development.md) を参照する。
-
-macOS arm64・Linux x86-64向けに、タグからプレリリースのバイナリを作る仕組みを用意している。配布物の確認・起動と公開前の手順は[プレリリースの配布と検証](docs/releases.md)を参照する。現時点ではタグのpush・Release公開は行っていない。
+配布アーカイブを使う場合は [対応環境](docs/releases.md#現在の範囲) と [ダウンロード後の確認](docs/releases.md#ダウンロード後の確認) を参照し、以下の `./zig-out/bin/zigurui` を展開した実行ファイルのパスに置き換える。対応OSの最低バージョンは未確定。
 
 ## 使い方
 
 ```sh
-mise run build
+# 索引の保存先を先に用意する
+mkdir -p .local
 
 # 文書ディレクトリを再帰的に読み、索引を作成する
 ./zig-out/bin/zigurui index /path/to/notes .local/notes.idx
@@ -53,6 +52,8 @@ mise run build
 ./zig-out/bin/zigurui help
 ```
 
+## 現在の機能と制約
+
 検索結果は `絶対パス:行番号: 抜粋` の形式で、1文書につき1件表示する。単語検索は検索表現で最初の一致、AND検索は各語句の最初の一致を原文へ戻した開始位置が最小の区間を使う。パス順で並び、一致がなければ何も表示せず正常終了する。抜粋はUTF-8の文字境界を保ち、一致開始の前32・開始から96コードポイント以内、改行までを表示する。normalizedでも行番号・抜粋は原文を使う。展開した文字の途中への一致は元の文字全体を指す。
 
 - 既定ではUTF-8の `.md` / `.markdown` をプレーンテキストとして扱う。`--frontmatter` を明示すると先頭YAMLを解析して本文だけを検索する。拡張子の大文字・小文字は区別しない。
@@ -71,54 +72,11 @@ frontmatterの事前スキーマ定義は不要。`schema` は保存済み文書
 
 索引は再構築可能なローカル派生データで、独自バイナリ形式v2にバージョンとチェックサム、検索modeと正規化プロファイルを持つ。v1索引や異なる正規化プロファイルは読み込まず再構築を案内する。非互換のバージョンや破損した索引を読み込んだ場合は、`index` を再実行する。チェックサムは偶発的な破損の検出用で、認証には使わない。保存は一時ファイルへの書き込み・同期後に置き換えるため、構築や書き込みの途中で失敗しても既存索引を維持する。
 
-## 開発と検証
+ランキング・見出しの重み付け・差分更新・ファイル監視は未実装。ひらがなとカタカナ、同義語などは同一視しない。frontmatterを明示した検索と `schema` では、不正・未対応のYAMLを黙って除外せず、問題のパスと理由を標準エラーへ示し、部分結果を出さず終了コード1で停止する。
 
-| コマンド | 内容 |
-| --- | --- |
-| `mise run build` | ビルド。成果物は `zig-out/bin/zigurui` |
-| `mise run run` | ビルドしてヘルプを表示 |
-| `mise run test` | 検索・保存形式・抜粋の単体テスト |
-| `mise run fmt` | Zigファイルを整形 |
-| `mise run fmt:check` | 整形の検査 |
-| `mise run lint:workflows` | actionlintで全GitHub Actionsワークフローを検査 |
-| `mise run check` | 整形・ワークフローの検査・ビルド・単体テスト |
-| `mise exec -- lefthook validate` | Git hookの設定を検証 |
-| `mise exec -- lefthook run pre-commit --all-files` | コミット前の検査を作業ツリー全体に手動実行 |
-| `python3 scripts/test-cli.py` | ビルド済み実行ファイルの結合テスト（Python 3が必要） |
-| `python3 scripts/test-benchmark-corpus.py` | 合成文書・独立した正解判定の単体テスト |
-| `python3 scripts/test-benchmark.py` | 時間・RSSの計測処理の単体テスト |
-| `python3 scripts/test-benchmark-report.py` | 公開用要約の生成処理の単体テスト |
+## 詳細仕様と開発者向け文書
 
-コミット前のGit hookは `lefthook.yml` を正本とし、整形の検査とactionlintだけを実行する。自動整形や自動stageは行わない。ビルド・単体テストは `mise run check`、結合テスト・ベンチマークまで含む検証はCIで行う。
-
-hookは作業ツリー全体を検査するため、部分stageした場合にコミット対象だけが正しいことを保証するものではない。stageした差分も確認してからコミットする。
-
-単体テストは公式Unicode適合データ、独立した位置期待値、索引/scanの一致、確保失敗を検証する。
-
-結合テストは一時文書を作り、索引検索と全文走査の一致、文書を変更しないこと、保存時点の本文での検索、再構築による追加・削除の反映、シンボリックリンクの除外、エラー時の既存索引維持を確認する。
-
-Zigのオプションを直接指定する場合は、例えば `mise exec -- zig build -Doptimize=ReleaseFast` を使う。
-
-固定seedの合成文書を使う検索の正しさ・速度・容量の比較は、[ベンチマークの条件と結果](docs/benchmarks.md)を参照する。
-
-[GitHub ActionsのCI](.github/workflows/ci.yml)はUbuntu上で検査・テストの `check` とReleaseFastの `benchmark` を、依存関係のない別ジョブで実行する。CIの測定条件は100・1,000文書、索引構築3回、各検索方式5回、予熱1回とし、GitHubの実行画面で概要と公開用の要約JSONを確認する。生の測定データや個人パスを含むmetadataはartifactへ保存しない。性能の閾値や過去結果との自動比較は設けない。
-
-独立した処理の並列化は待ち時間の短縮を狙うものだが、セットアップの重複でrunnerの総使用時間が増える場合がある。GitHub上での所要時間や使用量は未計測。
-
-CI相当のコマンドはmacOSで確認済み。GitHub上のLinux実行は未確認。
-
-## 構成と次の段階
-
-- `src/normalize.zig` / `src/unicode_bridge.c`: Unicode正規化と原文バイト区間の由来追跡
-- `src/search.zig`: コードポイント2-gram、転置インデックス、索引検索、基準となる全文走査
-- `src/storage.zig`: バージョン付き索引形式の符号化・復号・検査
-- `src/main.zig`: CLI、文書の収集、原子的な保存、検索結果の表示
-- `scripts/test-cli.py`: 実行ファイルの結合テスト
-- `mise.toml` / `build.zig` / `build.zig.zon`: ツール・タスク・ビルドの定義
-- `.local/`: コンセプト設計書などのローカル資料・一時ファイル（Git管理対象外）
-
-コンセプト設計書の段階1「正しく見つける」と段階2「索引を道具にする」を実装し、合成文書で速度・容量を比較している。段階3の複数語検索・ランキング・見出しの重み付け、段階4の差分更新・監視は今後の開発対象とする。現時点の実行確認はmacOSで行っている。
-
-## 依存更新とセキュリティ検査
-
-RenovateでmiseのツールとGitHub Actionsの更新を管理し、Trivyでsecretと対応する設定不備を検査する。対象・判定基準・ローカル確認・外部App有効化の手順と未確認事項は [依存更新とセキュリティ検査](docs/security-checks.md) を参照。
+- [検索の正規化](docs/search-normalization.md): 表記ゆれの範囲、原文位置、上限、索引の互換性。
+- [複数語句のAND検索](docs/search-and.md): 語句の指定、代表位置、表示規則。
+- [frontmatterとファイル情報](docs/frontmatter.md): 型、条件、スキーマ、対応YAML、失敗時の扱い。
+- [開発環境の運用](docs/development.md): 開発用セットアップ、テスト・評価、構成、保守・配布の案内。
