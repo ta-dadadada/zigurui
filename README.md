@@ -19,6 +19,8 @@ mise run check
 開発ツールのバージョンは `mise.toml` の `[tools]` を正本として固定している。実行ファイルに外部ライブラリへの依存はない。
 シェルにmiseを有効化していなくても、`mise run` または `mise exec --` 経由で利用できる。
 
+Codexの役割分担、linked worktreeのセットアップ、キャッシュの分離、測定時の協調は [開発環境の運用](docs/development.md) を参照する。
+
 macOS arm64・Linux x86-64向けに、タグからプレリリースのバイナリを作る仕組みを用意している。配布物の確認・起動と公開前の手順は[プレリリースの配布と検証](docs/releases.md)を参照する。現時点ではタグのpush・Release公開は行っていない。
 
 ## 使い方

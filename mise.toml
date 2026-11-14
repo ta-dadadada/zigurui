@@ -3,6 +3,10 @@ zig = "0.17.1"
 actionlint = "1.7.12"
 lefthook = "2.2.2"
 
+[env]
+ZIG_LOCAL_CACHE_DIR = "{{ config_root }}/.zig-cache"
+ZIG_GLOBAL_CACHE_DIR = "{{ config_root }}/.local/zig-global-cache"
+
 [tasks.build]
 description = "実行ファイルをビルドする"
 run = "zig build"
