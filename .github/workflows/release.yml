@@ -15,7 +15,7 @@ jobs:
   validate:
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - name: Checkout tagged source
@@ -48,7 +48,7 @@ jobs:
 
   build:
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -90,7 +90,7 @@ jobs:
 
   aggregate:
     needs: [validate, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Checkout tagged packaging script
@@ -140,7 +140,7 @@ jobs:
 
   publish:
     needs: aggregate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: write
