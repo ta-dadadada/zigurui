@@ -2,16 +2,16 @@
 
 ## 現在の範囲
 
-タグから配布用アーカイブを作り、GitHub Releaseへプレリリースとして公開するワークフローを用意している。現時点ではタグの作成・push、GitHub上の配布ワークフロー実行、Releaseの公開は行っていない。
+タグから配布用アーカイブを作り、GitHub Releaseへプレリリースとして公開する。公開済みの版とアセットは [Releases](https://github.com/ta-dadadada/zigurui/releases) で確認する。現インストーラの対応対象は `v0.1.0-alpha.3` 以降。以前の版は各Releaseのアセットを手動で取得する。
 
 対象は次の2種類。ターゲットの正式な定義、アーカイブの内容、タグの検査は [scripts/package_release.py](../scripts/package_release.py) に置く。
 
 | 配布名 | Zigターゲット | 実行環境 | ローカルでの確認（2026-11-14） |
 | --- | --- | --- | --- |
-| `macos-arm64` | `aarch64-macos` | Apple SiliconのmacOS | ReleaseFastで構築、Mach-O arm64の形式検査、アーカイブ展開後のCLI結合テスト3件が成功 |
-| `linux-x86_64` | `x86_64-linux-musl` | x86-64のLinux。muslで静的リンク | クロスビルドと静的リンクのELF x86-64形式検査が成功。実行は未検証 |
+| `macos-arm64` | `aarch64-macos` | Apple SiliconのmacOS | ReleaseFast構築・形式検査・展開後のCLI結合テスト11件が成功 |
+| `linux-x86_64` | `x86_64-linux-musl` | x86-64のLinux。muslで静的リンク | クロスビルド・静的ELF検査と実行互換環境でのCLI11件が成功。公開時はGitHubのLinux runnerでも実行検証する |
 
-対応OSの最低バージョンは未確定。macOSでの実行確認と、Linux向けにクロスビルドできることは別の検証として扱う。Linuxでの実行テストはワークフローで行う構成だが、GitHub上ではまだ実行していない。macOSのDeveloper ID署名・公証は含めない。
+対応OSの最低バージョンは未確定。macOSでの実行確認と、Linux向けにクロスビルドできることは別の検証として扱う。公開ワークフローはLinux上で展開後の版表示とCLI結合テストを確認する。macOSのDeveloper ID署名・公証は含めない。
 
 ローカルでは両対象の `build-target` を別プロセスで並列実行し、集約・梱包・チェックサム・内容検査と、梱包処理の単体テスト8件が成功した。文書中のmacOS用チェックサム確認コマンドも、生成したアーカイブに対して確認済み。ここでは `v0.1.0-alpha.1` を配布名の検証用文字列として使用し、Gitタグは作成していない。
 
@@ -33,13 +33,13 @@ macOS arm64では、実アーカイブを取得スタブ経由でインストー
 
 ## バージョンと配布物
 
-タグは64文字以内で、`v0.1.0-alpha.1` のような `vX.Y.Z-(alpha|beta|rc).N` 形式に限定する。数値の先頭ゼロは認めず、安定版形式の `v1.0.0` は受け付けない。当面はすべてGitHubのプレリリースとし、Latestには設定しない。
+タグは64文字以内で、`v0.1.0-alpha.3` のような `vX.Y.Z-(alpha|beta|rc).N` 形式に限定する。数値の先頭ゼロは認めず、安定版形式の `v1.0.0` は受け付けない。当面はすべてGitHubのプレリリースとし、Latestには設定しない。
 
-タグが `v0.1.0-alpha.1` の場合、次の3ファイルを配布する。
+タグが `v0.1.0-alpha.3` の場合、次の3ファイルを配布する。
 
 ```text
-zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz
-zigurui-v0.1.0-alpha.1-linux-x86_64.tar.gz
+zigurui-v0.1.0-alpha.3-macos-arm64.tar.gz
+zigurui-v0.1.0-alpha.3-linux-x86_64.tar.gz
 SHA256SUMS
 ```
 
@@ -51,37 +51,37 @@ SHA256SUMS
 
 `compile_target(target, tag)` が `-Dversion=<tag>` を渡し、配布バイナリの `version` / `--version` はタグを表示する。通常のソースビルドは `zigurui dev`。インストーラは現行の梱包契約に合わせ、utf8procとlibyamlの両ライセンスを必要とする。版表示・既定XDG保存先・JSON設定は今回の変更を含むバイナリが必要。
 
-インストーラの公開URLは未確定。READMEのGitHub raw URLはmainへの反映後の候補で、現時点の公開済み導入先ではない。公開前にURL・対象タグ・各OSでの導入と版表示を確認する。
+正式URLは `https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh`。mainの更新を追う入口として運用する。スクリプト自体を固定する場合は `https://raw.githubusercontent.com/ta-dadadada/zigurui/v0.1.0-alpha.3/scripts/install.sh` を使う。版固定URLは対象タグの公開後に利用できる。インストーラの取得元と、引数で指定するバイナリの版はそれぞれ確認する。
 
 ローカルでは `python3 scripts/test-install.py` で取得スタブと隔離したHOMEを用い、導入・再実行・更新・ダウングレード・失敗時保護を検証する。これはHTTPS経由の実取得やLinuxバイナリ実行の証拠ではない。CIとReleaseの検証でも同じテストを実行する。
 
 ## ダウンロード後の確認
 
-公開後は対象タグのReleaseページから、自分のOS・CPUに対応するアーカイブと `SHA256SUMS` を同じディレクトリへ保存する。次はmacOS arm64、タグ `v0.1.0-alpha.1` の例。タグとファイル名は入手した版に合わせる。
+公開後は対象タグのReleaseページから、自分のOS・CPUに対応するアーカイブと `SHA256SUMS` を同じディレクトリへ保存する。次はmacOS arm64、タグ `v0.1.0-alpha.3` の例。タグとファイル名は入手した版に合わせる。
 
 ```sh
-awk '$2 == "zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz"' SHA256SUMS \
+awk '$2 == "zigurui-v0.1.0-alpha.3-macos-arm64.tar.gz"' SHA256SUMS \
   | shasum -a 256 -c -
-tar -xzf zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz
-export PATH="$PWD/zigurui-v0.1.0-alpha.1-macos-arm64:$PATH"
+tar -xzf zigurui-v0.1.0-alpha.3-macos-arm64.tar.gz
+export PATH="$PWD/zigurui-v0.1.0-alpha.3-macos-arm64:$PATH"
 zigurui --version
 zigurui help
 ```
 
 Linuxでは `linux-x86_64` のファイルを選び、同じ確認を `sha256sum -c -` で行う。チェックサムが一致した後に解凍し、展開先を `PATH` に追加して起動する。上記の `export` は現在のシェルだけに適用される。SHA-256はダウンロードしたファイルと公開された配布物の一致を確認するもので、配布者の署名ではない。
 
-文書の索引作成・検索コマンドは[READMEの使い方](../README.md#使い方)を参照する。今回の変更を含む配布物は `./zigurui-v0.1.0-alpha.1-macos-arm64/zigurui --version` でタグを確認する。
+文書の索引作成・検索コマンドは[READMEの使い方](../README.md#使い方)を参照する。今回の変更を含む配布物は `./zigurui-v0.1.0-alpha.3-macos-arm64/zigurui --version` でタグを確認する。
 
 ## ローカルでの配布準備
 
 Python 3とmiseで固定したZigが必要。リポジトリのルートから、未使用の出力先を指定する。
 
 ```sh
-python3 scripts/package_release.py validate-tag v0.1.0-alpha.1
+python3 scripts/package_release.py validate-tag v0.1.0-alpha.3
 python3 scripts/package_release.py build \
-  --tag v0.1.0-alpha.1 --output .local/release-assets
+  --tag v0.1.0-alpha.3 --output .local/release-assets
 python3 scripts/package_release.py verify \
-  --tag v0.1.0-alpha.1 --directory .local/release-assets
+  --tag v0.1.0-alpha.3 --directory .local/release-assets
 ```
 
 この操作はローカルのビルドと梱包・検証だけを行い、GitタグやReleaseを作成しない。クロスビルドやアーカイブの構造検査だけでは、対象OSでの実行成功までは確認できない。
