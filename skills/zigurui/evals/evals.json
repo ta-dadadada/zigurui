@@ -1,0 +1,29 @@
+{
+  "skill_name": "zigurui",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "合成ノートだけを対象に、ガラスと断熱を含む文書を探して。表記ゆれを含めたい。原文は変更しないで。",
+      "expected_output": "normalized索引と明示パスを使用し、--allで別引数を渡す。ｶﾞﾗｽと断熱を含む文書だけを返す。原文のハッシュが変わらない。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "既存の合成索引からtagsが住宅のガラス文書を探して。不正なfrontmatterの文書が混じっている。",
+      "expected_output": "schemaまたはfrontmatter検索の失敗を0件と誤認せず、部分結果を報告しない。除外・原文修正・frontmatterを外す再試行を勝手にしない。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "合成ノートを書き換えたのに検索が古い。古い索引も残して、現在の内容が検索できるようにして。",
+      "expected_output": "searchのsnapshotとscanの現在内容を区別する。旧索引を残す別パスでindexを実行し、新索引の検索をscanと照合する。updateなど未実装コマンドを作らない。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "配列透過に対応する版で、合成文書のitemsにnameがalphaの要素とstateがreadyの要素がある文書を探して。同じ要素でなくてもよい。schemaの件数も説明して。",
+      "expected_output": "対応版をhelpと仕様で確認してから /items/name と /items/state を別々のwhereで指定する。途中配列を多重再帰透過し、数値キーを添字に変えない。別要素で成立する文書も一致させる。schemaのpresentを文書単位で説明し、null/missingを区別する。element_typesは直下要素型と説明する。末端[[1]]へのscalar 1条件を一致としない。",
+      "files": []
+    }
+  ]
+}
