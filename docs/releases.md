@@ -45,10 +45,11 @@ SHA256SUMS
 awk '$2 == "zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz"' SHA256SUMS \
   | shasum -a 256 -c -
 tar -xzf zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz
-./zigurui-v0.1.0-alpha.1-macos-arm64/zigurui help
+export PATH="$PWD/zigurui-v0.1.0-alpha.1-macos-arm64:$PATH"
+zigurui help
 ```
 
-Linuxでは `linux-x86_64` のファイルを選び、同じ確認を `sha256sum -c -` で行う。チェックサムが一致した後に解凍・起動する。SHA-256はダウンロードしたファイルと公開された配布物の一致を確認するもので、配布者の署名ではない。
+Linuxでは `linux-x86_64` のファイルを選び、同じ確認を `sha256sum -c -` で行う。チェックサムが一致した後に解凍し、展開先を `PATH` に追加して起動する。上記の `export` は現在のシェルだけに適用される。SHA-256はダウンロードしたファイルと公開された配布物の一致を確認するもので、配布者の署名ではない。
 
 文書の索引作成・検索コマンドは[READMEの使い方](../README.md#使い方)を参照する。CLIには版番号の表示コマンドがないため、入手したタグとアーカイブ名を記録しておく。
 

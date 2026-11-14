@@ -14,42 +14,45 @@ cd zigurui
 mise trust
 mise install zig
 mise run build
-./zig-out/bin/zigurui help
+export PATH="$PWD/zig-out/bin:$PATH"
+zigurui help
 ```
 
-実行ファイルは `zig-out/bin/zigurui` に生成される。固定版utf8procとlibyamlを静的に組み込むため、実行環境への追加ライブラリのインストールは不要。シェルにmiseを有効化していなくても、上記コマンドでビルドできる。
+実行ファイルは `zig-out/bin/zigurui` に生成される。上記の `export` は現在のシェルで `zigurui` を呼び出せるようにする。固定版utf8procとlibyamlを静的に組み込むため、実行環境への追加ライブラリのインストールは不要。シェルにmiseを有効化していなくても、上記コマンドでビルドできる。
 
-配布アーカイブを使う場合は [対応環境](docs/releases.md#現在の範囲) と [ダウンロード後の確認](docs/releases.md#ダウンロード後の確認) を参照し、以下の `./zig-out/bin/zigurui` を展開した実行ファイルのパスに置き換える。対応OSの最低バージョンは未確定。
+配布アーカイブを使う場合は [対応環境](docs/releases.md#現在の範囲) と [ダウンロード後の確認](docs/releases.md#ダウンロード後の確認) を参照し、展開先のディレクトリを `PATH` に追加する。対応OSの最低バージョンは未確定。
 
 ## 使い方
+
+以下は `zigurui` が `PATH` から実行できる状態の例。ソースからのビルドと配布バイナリで共通に使える。`/path/to/notes` は検索したい文書ディレクトリへ置き換える。
 
 ```sh
 # 索引の保存先を先に用意する
 mkdir -p .local
 
 # 文書ディレクトリを再帰的に読み、索引を作成する
-./zig-out/bin/zigurui index /path/to/notes .local/notes.idx
+zigurui index /path/to/notes .local/notes.idx
 
 # 保存済み索引から検索する（原文ディレクトリへのアクセスは不要）
-./zig-out/bin/zigurui search .local/notes.idx '検索エンジン'
+zigurui search .local/notes.idx '検索エンジン'
 
 # 同じ文書群を索引なしで全文走査する
-./zig-out/bin/zigurui scan /path/to/notes '検索エンジン'
+zigurui scan /path/to/notes '検索エンジン'
 
 # 表記ゆれを揃える索引と検索（既存索引とは別の保存先を使う）
-./zig-out/bin/zigurui index --mode normalized /path/to/notes .local/normalized.idx
-./zig-out/bin/zigurui search --mode normalized .local/normalized.idx 'ガラス'
-./zig-out/bin/zigurui scan --mode normalized /path/to/notes 'ガラス'
+zigurui index --mode normalized /path/to/notes .local/normalized.idx
+zigurui search --mode normalized .local/normalized.idx 'ガラス'
+zigurui scan --mode normalized /path/to/notes 'ガラス'
 
 # 複数の語句をすべて含む文書を検索する
-./zig-out/bin/zigurui search --mode normalized --all .local/normalized.idx 'ガラス' '断熱'
+zigurui search --mode normalized --all .local/normalized.idx 'ガラス' '断熱'
 
 # 保存済みfrontmatterのキーと型を調べ、本文をタグ条件で絞り込む
-./zig-out/bin/zigurui schema .local/normalized.idx
-./zig-out/bin/zigurui search --where file:/name '"notes.md"' .local/normalized.idx '検索'
-./zig-out/bin/zigurui search --mode normalized --frontmatter --where /tags '"住宅"' .local/normalized.idx 'ガラス'
+zigurui schema .local/normalized.idx
+zigurui search --where file:/name '"notes.md"' .local/normalized.idx '検索'
+zigurui search --mode normalized --frontmatter --where /tags '"住宅"' .local/normalized.idx 'ガラス'
 
-./zig-out/bin/zigurui help
+zigurui help
 ```
 
 ## 現在の機能と制約
