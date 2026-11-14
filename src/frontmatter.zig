@@ -54,8 +54,8 @@ pub const Scalar = union(enum) {
 
 const Value = union(enum) {
     scalar: Scalar,
-    array: []Scalar,
-    object: void,
+    array: []Value,
+    object: []Field,
 
     fn deinit(self: *Value, allocator: Allocator) void {
         switch (self.*) {
@@ -64,7 +64,10 @@ const Value = union(enum) {
                 for (items) |*item| item.deinit(allocator);
                 allocator.free(items);
             },
-            .object => {},
+            .object => |fields| {
+                for (fields) |*field| field.deinit(allocator);
+                allocator.free(fields);
+            },
         }
     }
 
@@ -72,34 +75,53 @@ const Value = union(enum) {
         return switch (self) {
             .scalar => |v| v.equal(expected),
             .array => |items| for (items) |item| {
-                if (item.equal(expected)) break true;
+                if (item == .scalar and item.scalar.equal(expected)) break true;
             } else false,
             .object => false,
         };
     }
 };
 
-const Field = struct { pointer: []u8, value: Value };
+// 各entryは完全なescape済みキー経路と子の値を所有する。
+const Field = struct {
+    pointer: []u8,
+    value: Value,
 
-/// fieldsを所有する。body_startは元の文書のUTF-8バイト位置。
+    fn deinit(self: *Field, allocator: Allocator) void {
+        allocator.free(self.pointer);
+        self.value.deinit(allocator);
+    }
+};
+
+fn findValue(value: Value, pointer: []const u8, expected: ?Scalar) ?Value {
+    switch (value) {
+        .scalar => {},
+        .array => |items| for (items) |item| {
+            if (findValue(item, pointer, expected)) |found| return found;
+        },
+        .object => |fields| for (fields) |field| {
+            if (std.mem.eql(u8, field.pointer, pointer)) {
+                if (expected == null or field.value.matches(expected.?)) return field.value;
+            }
+            if (findValue(field.value, pointer, expected)) |found| return found;
+        },
+    }
+    return null;
+}
+
+/// rootのfieldsとその子を所有する。body_startは元の文書のUTF-8バイト位置。
 pub const Metadata = struct {
     fields: std.ArrayList(Field) = .empty,
     body_start: usize = 0,
     has_frontmatter: bool = false,
 
     pub fn deinit(self: *Metadata, allocator: Allocator) void {
-        for (self.fields.items) |*field| {
-            allocator.free(field.pointer);
-            field.value.deinit(allocator);
-        }
+        for (self.fields.items) |*field| field.deinit(allocator);
         self.fields.deinit(allocator);
     }
 
     fn find(self: *const Metadata, pointer: []const u8) ?Value {
-        for (self.fields.items) |field| {
-            if (std.mem.eql(u8, field.pointer, pointer)) return field.value;
-        }
-        return null;
+        return findValue(.{ .object = self.fields.items }, pointer, null);
     }
 
     /// pathは保存snapshotまたはscanで収集した文書パスを借用する。
@@ -107,8 +129,7 @@ pub const Metadata = struct {
         for (filters) |filter| {
             switch (filter.kind) {
                 .metadata => {
-                    const value = self.find(filter.pointer) orelse return false;
-                    if (!value.matches(filter.expected)) return false;
+                    if (findValue(.{ .object = self.fields.items }, filter.pointer, filter.expected) == null) return false;
                 },
                 .file_name, .file_path => {
                     if (filter.expected != .string) return false;
@@ -227,7 +248,6 @@ const Parser = struct {
     handle: *anyopaque,
     event: Event = .{},
     nodes: usize = 0,
-    result: *Metadata,
 
     fn next(self: *Parser) Error!void {
         switch (zigurui_yaml_next(self.handle, &self.event)) {
@@ -247,54 +267,56 @@ const Parser = struct {
         return if (self.event.value) |ptr| ptr[0..self.event.length] else "";
     }
 
-    fn map(self: *Parser, prefix: []const u8, depth: usize) Error!void {
+    fn map(self: *Parser, prefix: []const u8, depth: usize) Error![]Field {
         if (depth > max_depth) return error.FrontmatterTooLarge;
+        var fields: std.ArrayList(Field) = .empty;
+        errdefer {
+            for (fields.items) |*field| field.deinit(self.allocator);
+            fields.deinit(self.allocator);
+        }
         try self.next();
         while (self.event.kind != 7) {
             if (self.event.kind != 5) return error.UnsupportedFrontmatter;
             if (std.mem.eql(u8, self.bytes(), "<<")) return error.UnsupportedFrontmatter;
             const pointer = try appendPointer(self.allocator, prefix, self.bytes());
-            var transferred = false;
-            errdefer if (!transferred) self.allocator.free(pointer);
-            if (self.result.find(pointer) != null) return error.InvalidFrontmatter;
-            const index = self.result.fields.items.len;
-            try self.result.fields.append(self.allocator, .{ .pointer = pointer, .value = .object });
-            transferred = true;
+            errdefer self.allocator.free(pointer);
+            // 配列内の別mapには同じキーがあってよい。
+            for (fields.items) |field| {
+                if (std.mem.eql(u8, field.pointer, pointer)) return error.InvalidFrontmatter;
+            }
             try self.next();
-            try self.value(index, pointer, depth + 1);
+            var parsed = try self.value(pointer, depth + 1);
+            errdefer parsed.deinit(self.allocator);
+            try fields.append(self.allocator, .{ .pointer = pointer, .value = parsed });
         }
         try self.next();
+        return fields.toOwnedSlice(self.allocator);
     }
 
-    fn value(self: *Parser, index: usize, pointer: []const u8, depth: usize) Error!void {
+    fn value(self: *Parser, pointer: []const u8, depth: usize) Error!Value {
         if (depth > max_depth) return error.FrontmatterTooLarge;
         switch (self.event.kind) {
             5 => {
-                const parsed = try scalar(self.allocator, self.bytes(), self.event.plain != 0);
-                self.result.fields.items[index].value = .{ .scalar = parsed };
+                var parsed = try scalar(self.allocator, self.bytes(), self.event.plain != 0);
+                errdefer parsed.deinit(self.allocator);
                 try self.next();
+                return .{ .scalar = parsed };
             },
-            6 => try self.map(pointer, depth),
+            6 => return .{ .object = try self.map(pointer, depth) },
             8 => {
-                var items: std.ArrayList(Scalar) = .empty;
+                var items: std.ArrayList(Value) = .empty;
                 errdefer {
                     for (items.items) |*item| item.deinit(self.allocator);
                     items.deinit(self.allocator);
                 }
                 try self.next();
                 while (self.event.kind != 9) {
-                    if (self.event.kind != 5) return error.UnsupportedFrontmatter;
-                    if (depth + 1 > max_depth) return error.FrontmatterTooLarge;
-                    var item = try scalar(self.allocator, self.bytes(), self.event.plain != 0);
-                    items.append(self.allocator, item) catch |err| {
-                        item.deinit(self.allocator);
-                        return err;
-                    };
-                    try self.next();
+                    var item = try self.value(pointer, depth + 1);
+                    errdefer item.deinit(self.allocator);
+                    try items.append(self.allocator, item);
                 }
-                const owned = try items.toOwnedSlice(self.allocator);
-                self.result.fields.items[index].value = .{ .array = owned };
                 try self.next();
+                return .{ .array = try items.toOwnedSlice(self.allocator) };
             },
             else => return error.UnsupportedFrontmatter,
         }
@@ -309,7 +331,7 @@ pub fn parse(allocator: Allocator, text: []const u8) Error!Metadata {
     if (!split.present) return result;
     const handle = zigurui_yaml_new(split.payload.ptr, split.payload.len) orelse return error.OutOfMemory;
     defer zigurui_yaml_delete(handle);
-    var parser: Parser = .{ .allocator = allocator, .handle = handle, .result = &result };
+    var parser: Parser = .{ .allocator = allocator, .handle = handle };
     try parser.next();
     if (parser.event.kind != 1) return error.InvalidFrontmatter;
     try parser.next();
@@ -317,7 +339,7 @@ pub fn parse(allocator: Allocator, text: []const u8) Error!Metadata {
     if (parser.event.kind != 3) return error.InvalidFrontmatter;
     try parser.next();
     if (parser.event.kind != 6) return error.UnsupportedFrontmatter;
-    try parser.map("", 1);
+    result.fields = .fromOwnedSlice(try parser.map("", 1));
     if (parser.event.kind != 4) return error.InvalidFrontmatter;
     try parser.next();
     if (parser.event.kind != 2) return error.UnsupportedFrontmatter;
@@ -437,7 +459,7 @@ fn scalarType(value: Scalar) Type {
 fn typeBit(value: Type) u8 {
     return @as(u8, 1) << @backingInt(value);
 }
-const Stat = struct { pointer: []u8, types: u8 = 0, present: usize = 0, null_count: usize = 0, element_types: u8 = 0 };
+const Stat = struct { pointer: []u8, types: u8 = 0, present: usize = 0, null_count: usize = 0, element_types: u8 = 0, last_present: ?usize = null, last_null: ?usize = null };
 const FieldView = struct { pointer: []const u8, types: []const []const u8, present: usize, missing: usize, null_count: usize, element_types: []const []const u8 };
 fn names(allocator: Allocator, bits: u8) ![][]const u8 {
     const result = try allocator.alloc([]const u8, @popCount(bits));
@@ -449,6 +471,48 @@ fn names(allocator: Allocator, bits: u8) ![][]const u8 {
         }
     }
     return result;
+}
+
+fn valueType(value: Value) Type {
+    return switch (value) {
+        .scalar => |v| scalarType(v),
+        .array => .array,
+        .object => .object,
+    };
+}
+
+fn collectStats(allocator: Allocator, value: Value, fields: *std.ArrayList(Stat), lookup: *std.StringHashMap(usize), document_index: usize) Error!void {
+    switch (value) {
+        .scalar => {},
+        .array => |items| for (items) |item| try collectStats(allocator, item, fields, lookup, document_index),
+        .object => |entries| for (entries) |field| {
+            const index = lookup.get(field.pointer) orelse blk: {
+                if (fields.items.len == max_schema_paths) return error.FrontmatterTooLarge;
+                const pointer = try allocator.dupe(u8, field.pointer);
+                fields.append(allocator, .{ .pointer = pointer }) catch |err| {
+                    allocator.free(pointer);
+                    return err;
+                };
+                const added = fields.items.len - 1;
+                try lookup.put(pointer, added);
+                break :blk added;
+            };
+            const stat = &fields.items[index];
+            if (stat.last_present != document_index) {
+                stat.present += 1;
+                stat.last_present = document_index;
+            }
+            stat.types |= typeBit(valueType(field.value));
+            if (field.value == .scalar and field.value.scalar == .null and stat.last_null != document_index) {
+                stat.null_count += 1;
+                stat.last_null = document_index;
+            }
+            if (field.value == .array) {
+                for (field.value.array) |item| stat.element_types |= typeBit(valueType(item));
+            }
+            try collectStats(allocator, field.value, fields, lookup, document_index);
+        },
+    }
 }
 
 /// 全文書を検証してスキーマJSONを返す。返却bytesはallocator.freeする。
@@ -471,35 +535,10 @@ pub fn schemaJson(allocator: Allocator, documents: []const search.Document, diag
         };
         defer metadata.deinit(allocator);
         if (metadata.has_frontmatter) frontmatter_count += 1;
-        for (metadata.fields.items) |field| {
-            const index = lookup.get(field.pointer) orelse blk: {
-                if (fields.items.len == max_schema_paths) {
-                    recordDiagnostic(diagnostic, document_index, .schema_aggregation, error.FrontmatterTooLarge);
-                    return error.FrontmatterTooLarge;
-                }
-                const pointer = try allocator.dupe(u8, field.pointer);
-                fields.append(allocator, .{ .pointer = pointer }) catch |err| {
-                    allocator.free(pointer);
-                    return err;
-                };
-                const added = fields.items.len - 1;
-                try lookup.put(pointer, added);
-                break :blk added;
-            };
-            const stat = &fields.items[index];
-            stat.present += 1;
-            switch (field.value) {
-                .scalar => |value| {
-                    stat.types |= typeBit(scalarType(value));
-                    if (value == .null) stat.null_count += 1;
-                },
-                .object => stat.types |= typeBit(.object),
-                .array => |items| {
-                    stat.types |= typeBit(.array);
-                    for (items) |item| stat.element_types |= typeBit(scalarType(item));
-                },
-            }
-        }
+        collectStats(allocator, .{ .object = metadata.fields.items }, &fields, &lookup, document_index) catch |err| {
+            recordDiagnostic(diagnostic, document_index, .schema_aggregation, err);
+            return err;
+        };
     }
     std.mem.sort(Stat, fields.items, {}, struct {
         fn less(_: void, a: Stat, b: Stat) bool {
@@ -627,14 +666,14 @@ test "スキーマは混在型と文書単位presentと全doc分母missingを安
         "{\"selector\":\"file:/path\",\"types\":[\"string\"],\"present\":3,\"missing\":0,\"null_count\":0,\"element_types\":[]}]}", json);
 }
 
-test "aliasとtagとmergeと複合配列と重複キーを明示的に拒否する" {
+test "aliasとtagとmergeと重複キーを明示的に拒否する" {
     const allocator = testing.allocator;
-    for ([_][]const u8{ "x: &a 1\ny: *a", "x: *a", "x: !!str 1", "<<: x", "'<<': x", "x: [[1]]", "x: [{a: 1}]", "[a, b]", "null", "? [a,b]\n: x" }) |payload| {
+    for ([_][]const u8{ "x: &a 1\ny: *a", "x: *a", "x: !!str 1", "<<: x", "'<<': x", "[a, b]", "null", "? [a,b]\n: x" }) |payload| {
         const text = try std.fmt.allocPrint(allocator, "---\n{s}\n---\n", .{payload});
         defer allocator.free(text);
         try testing.expectError(error.UnsupportedFrontmatter, parse(allocator, text));
     }
-    for ([_][]const u8{ "x: 1\nx: 2", "'x': 1\nx: 2", "nested: {x: 1, x: 2}", "x: [1, 2" }) |payload| {
+    for ([_][]const u8{ "x: 1\nx: 2", "'x': 1\nx: 2", "nested: {x: 1, x: 2}", "items: [{x: 1, x: 2}]", "items: [[{x: 1, x: 2}]]", "x: [1, 2" }) |payload| {
         const text = try std.fmt.allocPrint(allocator, "---\n{s}\n---\n", .{payload});
         defer allocator.free(text);
         try testing.expectError(error.InvalidFrontmatter, parse(allocator, text));
@@ -658,7 +697,7 @@ test "frontmatterの深さはrootを1として値ノード16までを許す" {
     defer allocator.free(exact);
     var metadata = try parse(allocator, exact);
     defer metadata.deinit(allocator);
-    try testing.expectEqual(@as(usize, 15), metadata.fields.items.len);
+    try testing.expectEqual(@as(usize, 1), metadata.fields.items.len);
     for ([_]usize{ 16, 64 }) |maps| {
         const text = try nestedFixture(allocator, maps);
         defer allocator.free(text);
@@ -715,7 +754,7 @@ test "nodes上限4096はmapとkeyとvalueと配列要素を含む" {
 
 fn allocationScenario(allocator: Allocator) !void {
     const documents = [_]search.Document{
-        .{ .path = "a", .text = "---\ntags: [a, 1, null]\nmeta: {flag: true}\n---\n前㌔後" },
+        .{ .path = "a", .text = "---\ntags: [a, 1, null, {nested: [[{name: a}, {name: null}], []]}, {nested: []}]\nmeta: {flag: true}\n---\n前㌔後" },
         .{ .path = "b", .text = "---\nmeta: null\n---\nガ" },
     };
     var filter = try Filter.init(allocator, "/tags", "\"a\"");
@@ -902,4 +941,137 @@ test "診断は失敗した文書を指し次の処理でclearされる" {
     const json = try schemaJson(testing.allocator, &.{}, &diagnostic);
     defer testing.allocator.free(json);
     try testing.expect(diagnostic == null);
+}
+
+test "配列透過のキー経路は多重配列と混在値を扱い末端配列を平坦化しない" {
+    const allocator = testing.allocator;
+    var metadata = try parse(allocator, "---\nitems: [null, 1, {name: a, age: 10}, [{name: b, age: 20}, {'a/b': {'~': yes}, '0': zero}], []]\nnumbers: [[1]]\nempty: []\n---\n本文");
+    defer metadata.deinit(allocator);
+    const cases = [_]struct { pointer: []const u8, json: []const u8, expected: bool }{
+        .{ .pointer = "/items/name", .json = "\"a\"", .expected = true },
+        .{ .pointer = "/items/name", .json = "\"b\"", .expected = true },
+        .{ .pointer = "/items/name", .json = "null", .expected = false },
+        .{ .pointer = "/items/age", .json = "20", .expected = true },
+        .{ .pointer = "/items/age", .json = "20.0", .expected = false },
+        .{ .pointer = "/items/a~1b/~0", .json = "\"yes\"", .expected = true },
+        .{ .pointer = "/items/0", .json = "\"zero\"", .expected = true },
+        .{ .pointer = "/items/0/name", .json = "\"a\"", .expected = false },
+        .{ .pointer = "/items", .json = "null", .expected = true },
+        .{ .pointer = "/items", .json = "1", .expected = true },
+        .{ .pointer = "/numbers", .json = "1", .expected = false },
+        .{ .pointer = "/empty", .json = "null", .expected = false },
+        .{ .pointer = "/empty/name", .json = "null", .expected = false },
+    };
+    for (cases) |case| {
+        var filter = try Filter.init(allocator, case.pointer, case.json);
+        defer filter.deinit(allocator);
+        try testing.expectEqual(case.expected, metadata.matches(&.{filter}, ""));
+    }
+    var name = try Filter.init(allocator, "/items/name", "\"a\"");
+    defer name.deinit(allocator);
+    var age = try Filter.init(allocator, "/items/age", "20");
+    defer age.deinit(allocator);
+    try testing.expect(metadata.matches(&.{ name, age }, ""));
+}
+
+test "配列objectのschemaは文書path単位で重複除外し直下型とnullを区別する" {
+    const allocator = testing.allocator;
+    const documents = [_]search.Document{
+        .{ .path = "a", .text = "---\nitems: [{name: a}, [{name: null}, {name: null}, {name: [1, {x: true}]}], null, 1, {}]\n---\nbody" },
+        .{ .path = "b", .text = "---\nitems: []\n---\nbody" },
+        .{ .path = "c", .text = "---\nitems: {name: {x: false}}\n---\nbody" },
+        .{ .path = "d", .text = "body" },
+    };
+    const json = try schemaJson(allocator, &documents, null);
+    defer allocator.free(json);
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, json, .{});
+    defer parsed.deinit();
+    const fields = parsed.value.object.get("fields").?.array.items;
+    try testing.expectEqual(@as(usize, 3), fields.len);
+    const expected = [_]struct { pointer: []const u8, types: []const []const u8, present: i64, nulls: i64, elements: []const []const u8 }{
+        .{ .pointer = "/items", .types = &.{ "array", "object" }, .present = 3, .nulls = 0, .elements = &.{ "array", "integer", "null", "object" } },
+        .{ .pointer = "/items/name", .types = &.{ "array", "null", "object", "string" }, .present = 2, .nulls = 1, .elements = &.{ "integer", "object" } },
+        .{ .pointer = "/items/name/x", .types = &.{"boolean"}, .present = 2, .nulls = 0, .elements = &.{} },
+    };
+    for (fields, expected) |field, want| {
+        try testing.expectEqualStrings(want.pointer, field.object.get("pointer").?.string);
+        try testing.expectEqual(want.present, field.object.get("present").?.integer);
+        try testing.expectEqual(4 - want.present, field.object.get("missing").?.integer);
+        try testing.expectEqual(want.nulls, field.object.get("null_count").?.integer);
+        const types = field.object.get("types").?.array.items;
+        try testing.expectEqual(want.types.len, types.len);
+        for (types, want.types) |actual, name| try testing.expectEqualStrings(name, actual.string);
+        const elements = field.object.get("element_types").?.array.items;
+        try testing.expectEqual(want.elements.len, elements.len);
+        for (elements, want.elements) |actual, name| try testing.expectEqualStrings(name, actual.string);
+    }
+}
+
+test "配列内の各値ノードも深さとnodes上限に含める" {
+    const allocator = testing.allocator;
+    for ([_]usize{ 14, 15 }) |arrays| {
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(allocator);
+        try text.appendSlice(allocator, "---\nx: ");
+        try text.appendNTimes(allocator, '[', arrays);
+        try text.appendSlice(allocator, "1");
+        try text.appendNTimes(allocator, ']', arrays);
+        try text.appendSlice(allocator, "\n---\nbody");
+        if (arrays == 14) {
+            var metadata = try parse(allocator, text.items);
+            defer metadata.deinit(allocator);
+        } else try testing.expectError(error.FrontmatterTooLarge, parse(allocator, text.items));
+    }
+    for ([_]usize{ 1364, 1365 }) |objects| {
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(allocator);
+        try text.appendSlice(allocator, "---\nx: [");
+        for (0..objects) |i| {
+            if (i != 0) try text.append(allocator, ',');
+            try text.appendSlice(allocator, "{k: 1}");
+        }
+        // root、key、arrayに3、各objectにmap/key/scalarの3、末尾scalarに1。
+        try text.appendSlice(allocator, ",0]\n---\nbody");
+        if (objects == 1364) {
+            var metadata = try parse(allocator, text.items);
+            defer metadata.deinit(allocator);
+        } else try testing.expectError(error.FrontmatterTooLarge, parse(allocator, text.items));
+    }
+}
+
+test "配列内の不正値も候補外文書を含め検証し診断位置を保持する" {
+    const allocator = testing.allocator;
+    const documents = [_]search.Document{
+        .{ .path = "good", .text = "---\nitems: [[{name: ok}]]\n---\n本文" },
+        .{ .path = "bad", .text = "---\nitems: [[{name: 1, name: 2}]]\n---\n本文" },
+    };
+    var filter = try Filter.init(allocator, "file:/name", "\"good\"");
+    defer filter.deinit(allocator);
+    var diagnostic: ?Diagnostic = null;
+    try testing.expectError(error.InvalidFrontmatter, Projection.init(allocator, &documents, &.{filter}, true, &diagnostic));
+    try testing.expectEqual(@as(usize, 1), diagnostic.?.document_index);
+    try testing.expectEqual(.frontmatter, diagnostic.?.context);
+    try testing.expectError(error.InvalidFrontmatter, schemaJson(allocator, &documents, &diagnostic));
+    try testing.expectEqual(@as(usize, 1), diagnostic.?.document_index);
+}
+
+fn rejectedArrayAllocationScenario(allocator: Allocator) !void {
+    for ([_][]const u8{
+        "items: [{name: ok}, [{name: first, name: second}]]",
+        "items: [{name: ok}, [{name: later}, [1, 2]",
+    }) |payload| {
+        const text = try std.fmt.allocPrint(allocator, "---\n{s}\n---\nbody", .{payload});
+        defer allocator.free(text);
+        if (parse(allocator, text)) |parsed| {
+            var metadata = parsed;
+            metadata.deinit(allocator);
+            return error.TestUnexpectedResult;
+        } else |err| {
+            if (err != error.InvalidFrontmatter) return err;
+        }
+    }
+}
+
+test "配列の途中で構文と重複キーが失敗しても確保済みtreeを解放する" {
+    try testing.checkAllAllocationFailures(testing.allocator, rejectedArrayAllocationScenario, .{});
 }

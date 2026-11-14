@@ -31,6 +31,13 @@ class FrontmatterOracleTest(unittest.TestCase):
             {"selector": "file:/path", "types": ["string"], "present": 0, "missing": 0, "null_count": 0, "element_types": []},
         ]})
 
+    def test_object_and_nested_arrays_are_not_unsupported_fixtures(self):
+        cases = {case["id"] for case in evaluation.invalid_documents()}
+        self.assertNotIn("array-object", cases)
+        self.assertNotIn("array-array", cases)
+        self.assertIn("duplicate-nested", cases)
+        self.assertIn("tag", cases)
+
     def test_typed_equality_does_not_use_python_numeric_coercion(self):
         self.assertFalse(evaluation.exact_scalar(1, 1.0))
         self.assertFalse(evaluation.exact_scalar(True, 1))

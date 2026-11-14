@@ -318,8 +318,6 @@ def invalid_documents():
         ("tag", "---\nx: !!str 1\n---\n", "UnsupportedFrontmatter"),
         ("directive", "---\n%YAML 1.1\n--- # yaml-document\nx: 1\n---\n", "UnsupportedFrontmatter"),
         ("merge", "---\n<<: value\n---\n", "UnsupportedFrontmatter"),
-        ("array-object", "---\nx: [{a: 1}]\n---\n", "UnsupportedFrontmatter"),
-        ("array-array", "---\nx: [[1]]\n---\n", "UnsupportedFrontmatter"),
         ("integer-overflow", "---\nx: 9223372036854775808\n---\n", "FrontmatterNumberOutOfRange"),
         ("integer-underflow", "---\nx: -9223372036854775809\n---\n", "FrontmatterNumberOutOfRange"),
         ("float-overflow", "---\nx: 1e309\n---\n", "FrontmatterNumberOutOfRange"),
