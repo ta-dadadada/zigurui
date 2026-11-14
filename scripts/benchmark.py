@@ -56,7 +56,11 @@ def summarize(samples):
 
 
 def measure(command, timeout_seconds=120):
-    """stdoutを捨ててpipe待ちを避け、wait4の同一子プロセスのrusageを記録する。"""
+    """stdoutを捨ててpipe待ちを避け、wait4の同一子プロセスのrusageを記録する。
+
+    RSSはexec前も含む子の生存期間の最大値。Linuxでは起動元のメモリ履歴が
+    下限として残る場合があり、exec後のプログラムだけの使用量ではない。
+    """
     if not hasattr(os, "wait4") or platform.system() not in ("Darwin", "Linux"):
         raise RuntimeError("measurement requires Darwin/Linux os.wait4")
     command = list(map(str, command))

@@ -3,10 +3,13 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
+import platform
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -38,10 +41,53 @@ class BenchmarkTest(unittest.TestCase):
         self.assertGreater(sample["peak_rss_bytes"], 0)
         self.assertGreater(sample["elapsed_ms"], 0)
 
-    def test_rss_belongs_to_each_child_not_previous_peak(self):
-        large = runner.measure([sys.executable, "-c", "data=bytearray(32*1024*1024)"], 10)
-        small = runner.measure([sys.executable, "-c", "pass"], 10)
-        self.assertGreater(large["peak_rss_bytes"] - small["peak_rss_bytes"], 16 * 1024 * 1024)
+    def test_rss_and_cpu_usage_belong_to_the_waited_child(self):
+        children = [mock.Mock(pid=41001, returncode=None), mock.Mock(pid=41002, returncode=None)]
+        usages = [
+            SimpleNamespace(ru_maxrss=80000, ru_utime=0.5, ru_stime=0.2),
+            SimpleNamespace(ru_maxrss=12000, ru_utime=0.1, ru_stime=0.05),
+        ]
+        # 値が小さくなる2件目も、そのPIDのrusageを使い、過去の最大値を引き継がない。
+        with mock.patch.object(runner.subprocess, "Popen", side_effect=children), \
+                mock.patch.object(runner.os, "wait4", side_effect=[(child.pid, 0, usage) for child, usage in zip(children, usages)]) as wait, \
+                mock.patch.object(runner.platform, "system", return_value="Linux"):
+            samples = [runner.measure(["unused-test-command"], 10) for _ in children]
+        self.assertEqual(wait.call_args_list, [mock.call(41001, 0), mock.call(41002, 0)])
+        for sample, usage in zip(samples, usages):
+            self.assertEqual(sample["peak_rss_bytes"], usage.ru_maxrss * 1024)
+            self.assertEqual(sample["user_seconds"], usage.ru_utime)
+            self.assertEqual(sample["system_seconds"], usage.ru_stime)
+
+    @unittest.skipUnless(platform.system() == "Linux", "Linuxのwait4とRUSAGE_SELFを照合する")
+    def test_linux_rss_matches_child_self_report_with_parent_memory_pressure(self):
+        # exec前の親の履歴がru_maxrssの下限になる条件を作る。子間の固定差は仮定しない。
+        parent_memory = bytearray(64 * 1024 * 1024)
+        for offset in range(0, len(parent_memory), os.sysconf("SC_PAGE_SIZE")):
+            parent_memory[offset] = 1
+        code = """import os, resource, struct, sys
+report = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+buffer = bytearray(8)
+pack = struct.Struct('=Q').pack_into
+get_usage = resource.getrusage
+write = os.write
+exit_process = os._exit
+data = bytearray(int(sys.argv[2]) * 1024 * 1024)
+for offset in range(0, len(data), os.sysconf('SC_PAGE_SIZE')):
+    data[offset] = 1
+get_usage(resource.RUSAGE_SELF)
+pack(buffer, 0, get_usage(resource.RUSAGE_SELF).ru_maxrss)
+write(report, buffer)
+exit_process(0)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            for index, allocation_mib in enumerate((32, 0)):
+                report = Path(directory) / f"child-{index}.rss"
+                sample = runner.measure([sys.executable, "-c", code, str(report), str(allocation_mib)], 10)
+                report_bytes = report.read_bytes()
+                self.assertEqual(len(report_bytes), 8)
+                child_peak_kib = int.from_bytes(report_bytes, sys.byteorder)
+                self.assertGreater(child_peak_kib, 0)
+                self.assertEqual(sample["peak_rss_bytes"], child_peak_kib * 1024)
 
     def test_failed_command_is_not_a_sample(self):
         with self.assertRaises(runner.MeasurementError) as failure:
