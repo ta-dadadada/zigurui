@@ -32,7 +32,7 @@ zigurui scan --mode normalized /path/to/notes 'ガラス'
 zigurui search --mode literal .local/normalized.idx 'ｶﾞﾗｽ'
 ```
 
-`--mode` はサブコマンドの直後に置く。省略時は設定ファイルの `mode` を使い、設定もなければ `literal`。[設定とCLIの優先順位](../README.md#設定ファイル)を参照。索引から既定モードを推測しない。
+`--mode` はサブコマンドの直後に置く。省略時は設定ファイルの `mode` を使い、設定もなければ `literal`。[設定とCLIの優先順位](usage.md#設定ファイル)を参照。索引から既定モードを推測しない。
 
 | 索引のmode | 検索mode | 経路 |
 | --- | --- | --- |
