@@ -110,6 +110,25 @@ cp "$FIXTURES/${url##*/}" "$out"
         self.assertTrue(list((self.bin / ".zigurui-install/licenses").glob("*/LICENSE-utf8proc.md")))
         self.assertTrue(list((self.bin / ".zigurui-install/licenses").glob("*/LICENSE-libyaml.txt")))
 
+    def test_backslash_in_bin_dir_or_home_does_not_change_hash(self):
+        for source in ("bin-dir", "HOME"):
+            with self.subTest(source=source):
+                home = self.home / ("home\\directory" if source == "HOME" else "other-home")
+                home.mkdir()
+                env = {**self.env, "HOME": str(home)}
+                destination = home / ".local/bin" if source == "HOME" else self.home / "custom\\bin"
+                args = () if source == "HOME" else ("--bin-dir", str(destination))
+                self.fixture()
+                self.run_install(*args, env=env)
+                binary = destination / "zigurui"
+                expected = binary.read_bytes()
+                receipt = destination / ".zigurui-install/receipts" / hashlib.sha256(expected).hexdigest()
+                self.assertEqual(receipt.read_text().splitlines()[0], hashlib.sha256(expected).hexdigest())
+                self.run_install(*args, env=env)
+                self.fixture(invalid="checksum")
+                self.run_install(*args, env=env, success=False)
+                self.assertEqual(binary.read_bytes(), expected)
+
     def test_fetch_checksum_archive_failures_leave_existing_binary(self):
         self.run_install()
         before = (self.bin / "zigurui").read_bytes()

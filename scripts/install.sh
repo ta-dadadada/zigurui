@@ -131,7 +131,8 @@ main() {
 }
 
 digest() {
-    if [ "$hash_tool" = sha256sum ]; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{print $1}'
+    # ファイル名のエスケープ表記がハッシュへ混ざらないよう標準入力を使う。
+    if [ "$hash_tool" = sha256sum ]; then sha256sum < "$1"; else shasum -a 256 < "$1"; fi | awk '{print $1}'
 }
 fetch() {
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$1" -o "$2" || fail "取得できません: $1（既存バイナリは維持しました）"
