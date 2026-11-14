@@ -6,11 +6,11 @@
 
 macOS arm64・Linux x86_64向けのプレリリースを使用する。Zig・mise・sudoは不要で、curl、tar、SHA-256用のshasumまたはsha256sumが必要。
 
-**まだReleaseとインストーラURLは公開していない。** 次のURLは、この変更がmainへ反映され、指定タグのReleaseが公開された後の利用例。公開URLは別途確定する。実在するプレリリースのタグを選び、例の版を置き換える。
+正式なインストーラURLは [install.sh](https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh)。現インストーラの対応対象は **v0.1.0-alpha.3以降**。公開状況と利用する版は [Releases](https://github.com/ta-dadadada/zigurui/releases) で確認する。以下は `v0.1.0-alpha.3` の導入例。
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh \
-  | sh -s -- --version v0.1.0-alpha.1 --channel prerelease
+  | sh -s -- --version v0.1.0-alpha.3 --channel prerelease
 ```
 
 保存して内容を確認してから実行する場合:
@@ -18,9 +18,11 @@ curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/in
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh -o install.sh
 less install.sh
-sh install.sh --version v0.1.0-alpha.1 --channel prerelease
+sh install.sh --version v0.1.0-alpha.3 --channel prerelease
 ~/.local/bin/zigurui --version
 ```
+
+通常のURLはmainの更新を追う。スクリプト自体も版固定で取得したい場合は、[alpha.3固定URL](https://raw.githubusercontent.com/ta-dadadada/zigurui/v0.1.0-alpha.3/scripts/install.sh) を使い、同じ版・チャンネルの引数を指定する。
 
 既定の配置先は `~/.local/bin`。`--bin-dir /absolute/path` で変更できる。PATHに含まれない場合は案内を表示するので、自分のシェルに合わせて設定する。シェル設定は自動変更しない。別の管理方法で入れたziguruiが先に選ばれる場合は、表示された導入先の絶対パスで確認する。
 
