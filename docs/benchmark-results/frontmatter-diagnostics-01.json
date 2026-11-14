@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "scope": "synthetic-diagnostic-correctness-no-performance-measurement",
+  "binary_sha256": "3e8e0760e8452648da4be0997f81072fdb71fd38367b9345e4dff5722537e5c9",
+  "binary_unchanged": true,
+  "failure_checks": 78,
+  "success_checks": 54,
+  "failure_classes": [
+    "FrontmatterNumberOutOfRange",
+    "FrontmatterTooLarge",
+    "InvalidFrontmatter",
+    "UnsupportedFrontmatter"
+  ],
+  "filename_safety_cases": 7,
+  "schema_aggregation_context_passed": true,
+  "partial_stdout_absent": true,
+  "header_body_values_absent_from_stderr": true,
+  "raw_result_sha256": "06bf87973f9a0d5b8953d64724951696d5ac033397724194aee4fd75e3a3e8a3",
+  "runner_sha256": "67d483ef824774f73cd260704a094fd461bfd9f0509176dfab179454cd436f50"
+}

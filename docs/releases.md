@@ -19,6 +19,10 @@
 
 未コミットのv2・正規化検索差分を含め、既存の2ターゲットをReleaseFastで構築し、アーカイブ構造・静的Linux ELF・チェックサムを確認した。両アーカイブの `LICENSE-utf8proc.md` はvendorの正本とバイト単位で一致した。macOSアーカイブから取り出した実行ファイルでCLI結合テスト5件、梱包処理の単体テスト10件が成功した。Linuxでの実行とGitHub上の実行は未検証。`v0.1.0-alpha.2` はローカルの梱包検証用の名前であり、タグの作成・push・公開はしていない。
 
+## frontmatter追加時のローカル検証（2026-11-14）
+
+正規化の局所改善・AND・frontmatterを含む最終ソースから、macOS arm64とLinux x86_64-muslをReleaseFast・stripで構築した。両アーカイブの構造・チェックサム・Linuxの静的ELFと、utf8proc/libyamlのライセンスが正本と一致することを確認した。通常設定の統合チェックに成功し、その後のfilter早期拒否と補足テストを含めReleaseSafeの全49単体テストも成功した。CLI・梱包・独立検索評価の詳細は[frontmatterの評価](frontmatter-evaluation.md)を参照。Linux上の実行とC内部mallocへの確保失敗注入は未実施。タグ作成・push・公開はしていない。
+
 ## バージョンと配布物
 
 タグは64文字以内で、`v0.1.0-alpha.1` のような `vX.Y.Z-(alpha|beta|rc).N` 形式に限定する。数値の先頭ゼロは認めず、安定版形式の `v1.0.0` は受け付けない。当面はすべてGitHubのプレリリースとし、Latestには設定しない。
