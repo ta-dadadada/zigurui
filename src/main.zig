@@ -10,12 +10,14 @@ const max_index_bytes = 1024 * 1024 * 1024;
 const help =
     \\zigurui - ローカルMarkdown検索
     \\
-    \\  zigurui index <directory> <index-file>
-    \\  zigurui search <index-file> <query>
-    \\  zigurui scan <directory> <query>
+    \\  zigurui index [--mode literal|normalized] <directory> <index-file>
+    \\  zigurui search [--mode literal|normalized] <index-file> <query>
+    \\  zigurui scan [--mode literal|normalized] <directory> <query>
     \\  zigurui help
     \\
-    \\queryは大文字・小文字を区別する部分一致。空白を含む場合は引用符で囲む。
+    \\既定のliteralは原文の連続部分一致。normalizedはNFKC・full case foldingを使う。
+    \\空白も検索語の一部。空白を含む場合は引用符で囲む。
+    \\normalized検索には同じmodeで構築した索引が必要。literalは両索引で使える。
     \\searchは保存時点の文書を検索する。変更後はindexを再実行する。
     \\索引ファイルにはMarkdown以外の拡張子を使用する。
     \\
@@ -24,7 +26,12 @@ const help =
 /// index・search・scanを実行する。検索結果が0件でも正常終了し、失敗は標準エラーへ出力して終了コード1を返す。
 pub fn main(init: std.process.Init) void {
     run(init) catch |err| {
-        const message = std.fmt.allocPrint(init.arena.allocator(), "zigurui: {s}\n", .{@errorName(err)}) catch "zigurui: OutOfMemory\n";
+        const hint: []const u8 = switch (err) {
+            error.UnsupportedVersion, error.UnsupportedSearchProfile, error.IndexModeMismatch => " (index --modeで索引を再構築してください)",
+            error.NormalizationTooLarge => " (非ASCIIの正規化は各中間表現4,194,304コードポイントまでです)",
+            else => "",
+        };
+        const message = std.fmt.allocPrint(init.arena.allocator(), "zigurui: {s}{s}\n", .{ @errorName(err), hint }) catch "zigurui: OutOfMemory\n";
         std.Io.File.stderr().writeStreamingAll(init.io, message) catch {};
         if (err == error.InvalidArguments) std.Io.File.stderr().writeStreamingAll(init.io, help) catch {};
         std.process.exit(1);
@@ -38,18 +45,21 @@ fn run(init: std.process.Init) !void {
         try std.Io.File.stdout().writeStreamingAll(init.io, help);
         return;
     }
-    if (args.len != 4) return error.InvalidArguments;
+    const parsed = try parseArguments(args);
+    const mode = parsed.mode;
+    const input = parsed.input;
+    const value = parsed.value;
     if (std.mem.eql(u8, args[1], "index")) {
         // 文書への誤上書きと、索引自身の再取り込みを防ぐ。
-        if (isMarkdown(args[3])) return error.IndexPathMustNotBeMarkdown;
-        const documents = try loadCorpus(allocator, init.io, args[2]);
+        if (isMarkdown(value)) return error.IndexPathMustNotBeMarkdown;
+        const documents = try loadCorpus(allocator, init.io, input);
         // 索引は文書を借用するため、arena内の本文は検索・符号化が終わるまで保持する。
-        var index = try search.Index.init(allocator, documents);
+        var index = try search.Index.initMode(init.gpa, documents, mode);
         defer index.deinit();
         const bytes = try storage.encode(allocator, &index);
         if (bytes.len >= max_index_bytes) return error.IndexTooLarge;
         // 書き込みと同期が成功してから置き換え、途中の失敗で既存索引を壊さない。
-        var atomic = try std.Io.Dir.cwd().createFileAtomic(init.io, args[3], .{ .replace = true });
+        var atomic = try std.Io.Dir.cwd().createFileAtomic(init.io, value, .{ .replace = true });
         defer atomic.deinit(init.io);
         try atomic.file.writeStreamingAll(init.io, bytes);
         try atomic.file.sync(init.io);
@@ -57,19 +67,30 @@ fn run(init: std.process.Init) !void {
         const message = try std.fmt.allocPrint(allocator, "{d} documents indexed\n", .{documents.len});
         try std.Io.File.stdout().writeStreamingAll(init.io, message);
     } else if (std.mem.eql(u8, args[1], "search")) {
-        const bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], init.gpa, .limited(max_index_bytes));
+        const bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, input, init.gpa, .limited(max_index_bytes));
         // 読み込みバッファを複製せず渡す。decodeOwnedは失敗時も所有権を引き取る。
         var stored = try storage.decodeOwned(init.gpa, bytes);
         defer stored.deinit();
-        const matches = try stored.index.search(allocator, args[3]);
+        const matches = try stored.index.searchMode(init.gpa, value, mode);
+        defer init.gpa.free(matches);
         try printMatches(allocator, init.io, stored.index.documents, matches);
     } else if (std.mem.eql(u8, args[1], "scan")) {
-        const documents = try loadCorpus(allocator, init.io, args[2]);
+        const documents = try loadCorpus(allocator, init.io, input);
         // 正解の基準となる全文走査では索引を構築しない。
         const index: search.Index = .{ .allocator = allocator, .documents = documents, .postings = &.{} };
-        const matches = try index.scan(allocator, args[3]);
+        const matches = try index.scanMode(init.gpa, value, mode);
+        defer init.gpa.free(matches);
         try printMatches(allocator, init.io, documents, matches);
     } else return error.InvalidArguments;
+}
+
+const Arguments = struct { mode: search.Mode, input: []const u8, value: []const u8 };
+
+fn parseArguments(args: []const []const u8) !Arguments {
+    if (args.len == 4) return .{ .mode = .literal, .input = args[2], .value = args[3] };
+    if (args.len != 6 or !std.mem.eql(u8, args[2], "--mode")) return error.InvalidArguments;
+    const mode: search.Mode = if (std.mem.eql(u8, args[3], "literal")) .literal else if (std.mem.eql(u8, args[3], "normalized")) .normalized else return error.InvalidArguments;
+    return .{ .mode = mode, .input = args[4], .value = args[5] };
 }
 
 fn isMarkdown(path: []const u8) bool {
@@ -145,4 +166,5 @@ test "抜粋はUTF-8境界を保ち制御文字を除去する" {
 test {
     _ = search;
     _ = storage;
+    _ = @import("normalize.zig");
 }

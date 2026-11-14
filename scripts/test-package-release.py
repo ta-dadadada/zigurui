@@ -21,6 +21,8 @@ class ReleasePackageTest(unittest.TestCase):
         self.repo.mkdir()
         (self.repo / "README.md").write_text("# zigurui\n")
         (self.repo / "LICENSE").write_text("test license\n")
+        (self.repo / "vendor" / "utf8proc").mkdir(parents=True)
+        (self.repo / "vendor" / "utf8proc" / "LICENSE.md").write_text("dependency license\n")
         (self.repo / "private.md").write_text("do not distribute\n")
         macos = struct.pack("<IIIIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 0, 0, 0, 0)
         linux = bytearray(64 + 56)
@@ -35,6 +37,12 @@ class ReleasePackageTest(unittest.TestCase):
             path.write_bytes(data)
             self.binaries[name] = path
         self.tag = "v0.1.0-alpha.1"
+
+    def test_dependency_license_is_required_before_packaging(self):
+        (self.repo / "vendor" / "utf8proc" / "LICENSE.md").rename(self.root / "retained-license.md")
+        with self.assertRaises(FileNotFoundError):
+            package(self.tag, self.binaries, self.root / "missing-license", self.repo)
+        self.assertFalse((self.root / "missing-license").exists())
 
     def test_only_prerelease_semver_is_accepted(self):
         for tag in (self.tag, "v1.2.3-beta.0", "v2.0.0-rc.1"):
@@ -51,13 +59,32 @@ class ReleasePackageTest(unittest.TestCase):
             stem = archive_stem(self.tag, target)
             archive = first / f"{stem}.tar.gz"
             with tarfile.open(archive) as tar:
-                self.assertEqual(set(tar.getnames()), {f"{stem}/zigurui", f"{stem}/README.md", f"{stem}/LICENSE"})
+                self.assertEqual(set(tar.getnames()), {f"{stem}/zigurui", f"{stem}/README.md", f"{stem}/LICENSE", f"{stem}/LICENSE-utf8proc.md"})
                 for member in tar.getmembers():
                     self.assertEqual((member.uid, member.gid, member.uname, member.gname, member.mtime), (0, 0, "", "", 0))
                 self.assertEqual(tar.getmember(f"{stem}/zigurui").mode, 0o755)
                 self.assertEqual(tar.extractfile(f"{stem}/zigurui").read(), self.binaries[target].read_bytes())
+                self.assertEqual(tar.extractfile(f"{stem}/LICENSE-utf8proc.md").read(), (self.repo / "vendor" / "utf8proc" / "LICENSE.md").read_bytes())
             self.assertIn(hashlib.sha256(archive.read_bytes()).hexdigest(), (first / "SHA256SUMS").read_text())
         verify(self.tag, first)
+
+    def test_verify_rejects_missing_dependency_license_even_with_valid_checksum(self):
+        import io
+        output = package(self.tag, self.binaries, self.root / "missing-archive-license", self.repo)
+        archive = output / f"{archive_stem(self.tag, 'macos-arm64')}.tar.gz"
+        with tarfile.open(archive) as source:
+            contents = [(member, source.extractfile(member).read()) for member in source.getmembers()
+                        if not member.name.endswith("/LICENSE-utf8proc.md")]
+        with tarfile.open(archive, "w:gz") as target:
+            for member, data in contents:
+                target.addfile(member, io.BytesIO(data))
+        sums = output / "SHA256SUMS"
+        lines = sums.read_text().splitlines()
+        sums.write_text("\n".join(
+            f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}" if line.endswith(archive.name) else line
+            for line in lines) + "\n")
+        with self.assertRaisesRegex(ValueError, "unexpected archive contents"):
+            verify(self.tag, output)
 
     def test_wrong_architecture_dynamic_link_and_private_paths_are_rejected(self):
         macos = self.binaries["macos-arm64"]
