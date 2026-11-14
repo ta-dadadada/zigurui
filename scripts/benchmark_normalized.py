@@ -152,7 +152,7 @@ def validate_counts(profile, expected):
             raise ValueError(f"unexpected {name}: expected {count}, got {profile['counts'][name]}")
 
 
-def execute(command, stderr_path, timeout, capture=False):
+def execute(command, stderr_path, timeout, capture=False, env=None):
     """既存runnerと同じwait4計測。診断と計測JSONを新規ファイルに保持する。"""
     if not hasattr(os, "wait4"):
         raise RuntimeError("os.wait4 is required")
@@ -170,7 +170,7 @@ def execute(command, stderr_path, timeout, capture=False):
         child = None
         started = time.perf_counter_ns()
         try:
-            child = subprocess.Popen(command, stdout=stdout, stderr=stderr)
+            child = subprocess.Popen(command, stdout=stdout, stderr=stderr, env=env)
             _, status, usage = os.wait4(child.pid, 0)
             finished = time.perf_counter_ns()
             child.returncode = os.waitstatus_to_exitcode(status)

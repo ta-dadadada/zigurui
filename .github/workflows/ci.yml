@@ -43,11 +43,19 @@ jobs:
       - name: Test benchmark measurement harness
         run: python3 scripts/test-benchmark.py
 
+      - name: Test evaluation settings isolation
+        run: |
+          python3 scripts/test-benchmark-normalized.py
+          python3 scripts/test-evaluate-and.py
+
       - name: Test benchmark report exporter
         run: python3 scripts/test-benchmark-report.py
 
       - name: Test release packaging
         run: python3 scripts/test-package-release.py
+
+      - name: Test installer without network access
+        run: python3 scripts/test-install.py
 
   benchmark:
     runs-on: ubuntu-24.04

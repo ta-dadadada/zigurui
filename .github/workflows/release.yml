@@ -41,6 +41,7 @@ jobs:
         run: |
           mise run check
           python3 scripts/test-package-release.py
+          python3 scripts/test-install.py
 
       - name: Export target matrix
         id: targets
@@ -125,6 +126,7 @@ jobs:
           python3 scripts/package_release.py verify --tag "$RELEASE_TAG" --directory .local/release-assets
           package_dir=$(mktemp -d)
           tar -xzf ".local/release-assets/zigurui-$RELEASE_TAG-linux-x86_64.tar.gz" -C "$package_dir" --strip-components=1
+          test "$("$package_dir/zigurui" --version)" = "zigurui $RELEASE_TAG"
           python3 scripts/test-cli.py "$package_dir/zigurui"
 
       - name: Upload release assets

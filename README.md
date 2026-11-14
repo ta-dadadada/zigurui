@@ -2,9 +2,93 @@
 
 ローカルのMarkdownを対象に、索引の構築・検索・保存をZigで自作する検索エンジン。日本語・英語の部分一致検索に加え、表記ゆれを揃えた検索、複数語句のAND、frontmatterやファイル情報による絞り込みができる。
 
-## インストール
+## インストール・更新
 
-### ソースからビルドする
+macOS arm64・Linux x86_64向けのプレリリースを使用する。Zig・mise・sudoは不要で、curl、tar、SHA-256用のshasumまたはsha256sumが必要。
+
+**まだReleaseとインストーラURLは公開していない。** 次のURLは、この変更がmainへ反映され、指定タグのReleaseが公開された後の利用例。公開URLは別途確定する。実在するプレリリースのタグを選び、例の版を置き換える。
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh \
+  | sh -s -- --version v0.1.0-alpha.1 --channel prerelease
+```
+
+保存して内容を確認してから実行する場合:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh -o install.sh
+less install.sh
+sh install.sh --version v0.1.0-alpha.1 --channel prerelease
+~/.local/bin/zigurui --version
+```
+
+既定の配置先は `~/.local/bin`。`--bin-dir /absolute/path` で変更できる。PATHに含まれない場合は案内を表示するので、自分のシェルに合わせて設定する。シェル設定は自動変更しない。別の管理方法で入れたziguruiが先に選ばれる場合は、表示された導入先の絶対パスで確認する。
+
+更新・旧版への戻し方は、希望する版を指定して同じインストーラを再実行する。同じ版の再実行も可能。版の指定は必須で、自動的に最新版を選ばない。`--channel` の既定は `stable` で `vX.Y.Z` だけを受け付ける。当面のReleaseはプレリリースのみなので、`--channel prerelease` と `vX.Y.Z-alpha.N` / `beta.N` / `rc.N` のタグを明示する。版とチャンネルが一致しなければ終了する。
+
+取得・SHA-256検証・展開に失敗した場合は既存バイナリを残す。導入記録のない既存ファイル、シンボリックリンク、前回導入後に他の方法で変更されたバイナリは上書きしない。miseなどで管理している場合はその方法で更新するか、別の `--bin-dir` を選ぶ。強制上書きは提供しない。
+
+導入先の `.zigurui-install/` に管理記録と配布物のREADME・ライセンスを保持する。ここはインストーラの管理領域で、利用者の索引・設定を置かない。SHA-256は破損や取り違えの検出用であり、バイナリとチェックサムの配布元が同時に改ざんされた場合は防げない。署名・attestation・macOS公証は未対応。
+
+取得や検証のエラーでは、版・チャンネル・公開アセットを確認して再実行する。書き込みに失敗したら、書き込める `--bin-dir` を選ぶ。ロック取得のエラーでは他の導入処理の終了を待つ。中断で `.zigurui-install.lock` が残った場合だけ、他の導入処理がないことを確認してその空ディレクトリを `rmdir` し、再実行する。導入記録と異なる場合は、管理元を確認するか新しい配置先を使う。
+
+アンインストールは、このインストーラで導入した配置先の `zigurui` ファイルだけを削除する。例: `rm -- "$HOME/.local/bin/zigurui"`。設定・索引・原本は削除しない。管理記録とライセンスも自動削除しない。
+
+## 保存先
+
+macOS・Linux共通でXDG方式を使う。macOSでも `~/Library` 配下は使わない。
+
+| 用途 | 既定 | 環境変数 |
+| --- | --- | --- |
+| 設定 | `~/.config/zigurui/` | `XDG_CONFIG_HOME` |
+| 保持する索引 | `~/.local/share/zigurui/` | `XDG_DATA_HOME` |
+| 再生成可能なキャッシュ（現在未使用） | `~/.cache/zigurui/` | `XDG_CACHE_HOME` |
+| ログなどの状態（現在未使用） | `~/.local/state/zigurui/` | `XDG_STATE_HOME` |
+
+各環境変数の絶対パスの下に `zigurui/` を付ける。空・相対パスの場合はHOMEから既定を解決する。既定索引はdata配下の `default.idx`。`zigurui paths` で現在の保存先を確認でき、このコマンド自体は何も作成しない。設定ファイルは同ディレクトリの `config.json` を使う。文書登録機能はまだない。
+
+```sh
+zigurui paths
+zigurui index /path/to/notes
+zigurui search '検索エンジン'
+# 正規化用に別の索引を保持する場合は明示パスを使用する
+zigurui index --mode normalized /path/to/notes /path/to/normalized.idx
+zigurui search --mode normalized /path/to/normalized.idx 'ガラス'
+```
+
+パス省略時は単一の既定索引を使い、`index` の再実行で置き換える。複数の文書群・検索モードを保持する場合は索引パスを明示する。索引パスをCLIで省略した場合は、設定で選んだ索引も含めて親を構築時に作成する。明示パスの親は従来どおり事前に作成する。既存の索引を自動移動することはない。
+
+索引は利用者が保持するデータで、キャッシュ削除の対象ではない。バイナリの更新と索引形式の互換性は別に扱う。読めない版・正規化プロファイル・検索モードでは理由と再構築の案内を表示し、自動削除・変換はしない。元の文書から、同じ保存先と必要な `--mode` を指定して `index` を再実行する。旧版で作った索引を残す必要がある場合は別の保存先へ再構築する。
+
+## 設定ファイル
+
+毎回同じ索引・検索モードを使う場合は、`zigurui paths` の `config_file` に表示される場所へUTF-8の `config.json` を作成する。既定は `~/.config/zigurui/config.json`。ファイルと親ディレクトリは自動作成しない。例:
+
+```json
+{
+  "index_path": "/absolute/path/to/notes.idx",
+  "mode": "normalized"
+}
+```
+
+| 項目 | 設定時の動作 | 未設定時 |
+| --- | --- | --- |
+| `index_path` | CLIで索引パスを省略した `index` / `search` の保存先・読込先 | XDGのdata配下の `default.idx` |
+| `mode` | `index` / `search` / `scan` の検索モード。`literal` または `normalized` | `literal` |
+
+どちらの項目も省略でき、`{}` も有効。`--all` と `schema` は索引パスの明示を維持し、設定の `index_path` は使用しない。文書ディレクトリと検索語は、その都度CLIの引数で指定する。
+
+優先順位は **CLIの明示指定 → 設定ファイル → 未設定時の既定値**。たとえば上の設定では、`zigurui index /path/to/notes` と `zigurui search 'ガラス'` に同じ索引・normalizedが適用される。`zigurui search --mode literal /other/notes.idx '検索'` は両方をCLI指定で上書きする。索引の再構築や変換は自動では行わないので、モードを変更した場合は対応する索引を作成する。
+
+設定の `index_path` に相対パスを書く場合は、**config.jsonのあるディレクトリ**を基準にする。CLIの明示パスは従来どおり実行ディレクトリ基準。どちらも `~` や環境変数をアプリ側で展開しない（CLIではシェルの展開が先に行われる）。`paths` は設定を反映した既定索引とmodeを表示する。
+
+設定ファイルがなければ従来の既定値で動作する。HOMEも有効なXDG_CONFIG_HOMEもなく設定先を決められない場合は設定なしとして扱い、明示パスでの操作を維持する。既定索引が必要な場合は、有効なXDG_DATA_HOMEかHOMEを設定する。
+
+存在する設定は、CLIで上書きする項目も含めて全体を検証する。JSONオブジェクト以外、未知キー、重複キー、文字列以外（nullを含む）、不正なmode、空・NULを含むindex_path、不正UTF-8、64 KiBを超えるファイルはエラーになる。空ファイルも不正。構文不正や読取権限不足では設定ファイルの場所と理由を表示し、索引・設定を変更せず停止する。`help` と `version` / `--version` は設定を読まずに使用できる。設定ファイル自身を索引で上書きする指定は拒否する。
+
+バイナリを更新・ダウングレードしても設定内容は保持する。旧版が新しい設定項目を理解できる保証はないため、未対応の版へ戻す場合は設定項目も確認する。
+
+## ソースからビルドする
 
 Gitと [mise](https://mise.jdx.dev/getting-started.html) を用意し、次を実行する。利用するだけならGit hookの導入や開発用テストは不要。
 
@@ -65,9 +149,9 @@ zigurui help
 - 空の検索語、不正なUTF-8、読み取りや保存の失敗は、標準エラーにエラー名を表示して終了コード1を返す。
 - normalizedでは非ASCIIを含む入力・各中間表現を4,194,304コードポイントまでに制限し、超過は `NormalizationTooLarge` になる。ASCIIだけの場合は由来表を省略し、この追加制限はない。
 - 1文書は64 MiB未満、索引の読み込みは1 GiB未満に制限する。対象の一部を黙って省略せず、読み取りに失敗した場合はコマンド全体を失敗させる。
-- 文書を読み取り専用で扱う。索引による文書の上書きと索引自身の取り込みを防ぐため、索引の保存先にはMarkdown以外の拡張子を指定する。保存先の親ディレクトリはあらかじめ作成する。
+- 文書を読み取り専用で扱う。索引による文書の上書きと索引自身の取り込みを防ぐため、索引の保存先にはMarkdown以外の拡張子を指定する。CLIで明示した保存先の親ディレクトリはあらかじめ作成する。
 
-normalized検索はnormalizedで構築した索引を必要とする。normalized索引のliteral検索は保存原文を全文走査する。`--mode` を省略すると、索引の種類にかかわらずliteralになる。処理・位置対応・対象外の表記差は [検索の正規化](docs/search-normalization.md)、複数語句と代表位置の規則は [AND検索](docs/search-and.md) を参照。
+normalized検索はnormalizedで構築した索引を必要とする。normalized索引のliteral検索は保存原文を全文走査する。`--mode` を省略すると設定の `mode` を使い、それも未設定なら索引の種類にかかわらずliteralになる。処理・位置対応・対象外の表記差は [検索の正規化](docs/search-normalization.md)、複数語句と代表位置の規則は [AND検索](docs/search-and.md) を参照。
 
 frontmatterの事前スキーマ定義は不要。`schema` は保存済み文書からキー・混在型・有無と、組み込みのファイル名・保存パスの型を表示する。`--where` は型付きの等値条件で、複数指定はAND、scalar配列は要素のどれかへの一致となる。`file:/name` と `file:/path` の条件だけならYAMLを解析せず原文全体を検索できる。対象構文・型・制限は [frontmatter](docs/frontmatter.md) を参照。
 

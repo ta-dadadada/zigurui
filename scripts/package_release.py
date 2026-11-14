@@ -206,12 +206,12 @@ def verify(tag: str, directory: Path) -> None:
             validate_payload(target, tar.extractfile(binary).read())
 
 
-def compile_target(target: str) -> Path:
+def compile_target(target: str, tag: str) -> Path:
     """配布用strip binaryを構築する。中間出力は既存の検証用領域へ集約して再利用する。"""
     if target not in TARGETS:
         raise ValueError(f"unsupported target: {target}")
     prefix = REPOSITORY / ".local" / "release-feasibility" / "target-builds" / target
-    subprocess.run(["mise", "exec", "--", "zig", "build", "-Doptimize=ReleaseFast", "-Dstrip=true", f"-Dtarget={TARGETS[target]}", "--prefix", str(prefix)], cwd=REPOSITORY, check=True)
+    subprocess.run(["mise", "exec", "--", "zig", "build", "-Doptimize=ReleaseFast", "-Dstrip=true", f"-Dversion={validate_tag(tag)}", f"-Dtarget={TARGETS[target]}", "--prefix", str(prefix)], cwd=REPOSITORY, check=True)
     return prefix / "bin" / "zigurui"
 
 
@@ -220,7 +220,7 @@ def build_target(tag: str, target: str, output: Path) -> Path:
     target_metadata(tag, target, "")
     if output.exists():
         raise FileExistsError(output)
-    return stage_target(tag, target, compile_target(target), output)
+    return stage_target(tag, target, compile_target(target, tag), output)
 
 
 def build(tag: str, output: Path) -> Path:
@@ -228,7 +228,7 @@ def build(tag: str, output: Path) -> Path:
     validate_tag(tag)
     if output.exists():
         raise FileExistsError(output)
-    return package(tag, {target: compile_target(target) for target in TARGETS}, output)
+    return package(tag, {target: compile_target(target, tag) for target in TARGETS}, output)
 
 
 def main() -> None:

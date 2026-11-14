@@ -36,6 +36,10 @@ class BenchmarkTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             runner.rss_bytes(100, "Other")
 
+    def test_measure_passes_isolated_cli_environment(self):
+        runner.measure([sys.executable, "-c", "import os;assert os.environ['XDG_CONFIG_HOME'] == '/isolated-config'"],
+                       env={**os.environ, "XDG_CONFIG_HOME": "/isolated-config"})
+
     def test_large_output_has_no_pipe_deadlock(self):
         sample = runner.measure([sys.executable, "-c", "import sys;sys.stdout.write('x'*1000000);sys.stderr.write('x'*1000000)"], 10)
         self.assertGreater(sample["peak_rss_bytes"], 0)

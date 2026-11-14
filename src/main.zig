@@ -6,49 +6,59 @@ const profile = @import("profile.zig");
 const search = @import("search.zig");
 const storage = @import("storage.zig");
 const frontmatter = @import("frontmatter.zig");
+const Paths = @import("paths.zig").Paths;
+const configuration = @import("config.zig");
+const version = @import("build_options").version;
 
 const max_index_bytes = 1024 * 1024 * 1024;
 
 const help =
     \\zigurui - ローカルMarkdown検索
     \\
-    \\  zigurui index [--mode literal|normalized] <directory> <index-file>
-    \\  zigurui search [--mode literal|normalized] <index-file> <query>
+    \\  zigurui index [--mode literal|normalized] <directory> [<index-file>]
+    \\  zigurui search [--mode literal|normalized] [<index-file>] <query>
     \\  zigurui scan [--mode literal|normalized] <directory> <query>
     \\  zigurui search [--mode literal|normalized] --all <index-file> <term>...
     \\  zigurui scan [--mode literal|normalized] --all <directory> <term>...
     \\  zigurui schema <index-file>
     \\  search/scanの入力前: [--frontmatter] [--where <selector> <JSON-scalar>]...
     \\  zigurui help
+    \\  zigurui paths
+    \\  zigurui version / --version
     \\
-    \\既定のliteralは原文の連続部分一致。normalizedはNFKC・full case foldingを使う。
+    \\literalは原文の連続部分一致。normalizedはNFKC・full case foldingを使う。
     \\空白も検索語の一部。空白を含む場合は引用符で囲む。
     \\--allは指定した全語句を同一文書で検索する。順序は問わない。
     \\--frontmatterは本文だけを検索する。--whereはYAMLキーやfile:/name・file:/pathで絞る。
     \\normalized検索には同じmodeで構築した索引が必要。literalは両索引で使える。
     \\searchは保存時点の文書を検索する。変更後はindexを再実行する。
     \\索引ファイルにはMarkdown以外の拡張子を使用する。
+    \\設定はXDG_CONFIG_HOME/zigurui/config.jsonから読み、CLI指定を優先する。
+    \\設定なしの既定はliteralとXDG_DATA_HOME/zigurui/default.idx（pathsで確認）。
+    \\--allとschemaでは索引パスを明示する。
     \\
 ;
 
 /// index・search・scanを実行する。検索結果が0件でも正常終了し、失敗は標準エラーへ出力して終了コード1を返す。
 pub fn main(init: std.process.Init) void {
     var reported = false;
-    run(init, &reported) catch |err| {
+    var config_diagnostic: ?[]const u8 = null;
+    run(init, &reported, &config_diagnostic) catch |err| {
         if (reported) std.process.exit(1);
         const hint: []const u8 = switch (err) {
             error.UnsupportedVersion, error.UnsupportedSearchProfile, error.IndexModeMismatch => " (index --modeで索引を再構築してください)",
             error.NormalizationTooLarge => " (非ASCIIの正規化は各中間表現4,194,304コードポイントまでです)",
+            error.HomeDirectoryUnavailable => " (絶対パスのHOMEまたは各XDG_*_HOMEを設定してください)",
             else => "",
         };
-        const message = std.fmt.allocPrint(init.arena.allocator(), "zigurui: {s}{s}\n", .{ @errorName(err), hint }) catch "zigurui: OutOfMemory\n";
+        const message = std.fmt.allocPrint(init.arena.allocator(), "zigurui: {s}{s}\n", .{ config_diagnostic orelse @errorName(err), hint }) catch "zigurui: OutOfMemory\n";
         std.Io.File.stderr().writeStreamingAll(init.io, message) catch {};
         if (err == error.InvalidArguments) std.Io.File.stderr().writeStreamingAll(init.io, help) catch {};
         std.process.exit(1);
     };
 }
 
-fn run(init: std.process.Init, reported: *bool) !void {
+fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8) !void {
     var diagnostic: ?frontmatter.Diagnostic = null;
     const allocator = init.arena.allocator();
     const args = try init.minimal.args.toSlice(allocator);
@@ -56,28 +66,56 @@ fn run(init: std.process.Init, reported: *bool) !void {
         try std.Io.File.stdout().writeStreamingAll(init.io, help);
         return;
     }
-    const parsed = try parseArguments(args);
+    if (args.len == 2 and (std.mem.eql(u8, args[1], "version") or std.mem.eql(u8, args[1], "--version"))) {
+        try std.Io.File.stdout().writeStreamingAll(init.io, "zigurui " ++ version ++ "\n");
+        return;
+    }
+    const showing_paths = args.len == 2 and std.mem.eql(u8, args[1], "paths");
+    // 引数エラーは設定の有無にかかわらず診断する。
+    const parsed: ?Arguments = if (showing_paths) null else try parseArguments(args);
+    // HOMEがなく設定先を特定できない場合も、既存の明示パス操作は利用できる。
+    const config_file = Paths.configFile(allocator, init.environ_map) catch |err| switch (err) {
+        error.HomeDirectoryUnavailable => null,
+        else => return err,
+    };
+    const config = try configuration.load(allocator, init.io, config_file, config_diagnostic);
+    if (showing_paths) {
+        const paths = try Paths.resolve(allocator, init.environ_map);
+        const message = try std.fmt.allocPrint(allocator, "config: {s}\nconfig_file: {s}\ndata: {s}\ncache: {s}\nstate: {s}\nindex: {s}\nmode: {s}\n", .{ paths.config, config_file.?, paths.data, paths.cache, paths.state, config.index_path orelse paths.index, @tagName(config.mode) });
+        try std.Io.File.stdout().writeStreamingAll(init.io, message);
+        return;
+    }
+    var arguments = parsed.?;
+    if (!arguments.mode_specified and !std.mem.eql(u8, args[1], "schema")) arguments.mode = config.mode;
+    const default_index = if (arguments.default_index) config.index_path orelse try Paths.defaultIndex(allocator, init.environ_map) else null;
+    if (default_index) |path| {
+        if (std.mem.eql(u8, args[1], "index")) arguments.value = path else arguments.input = path;
+    }
     profile.init(init.io);
     var succeeded = false;
     const command = if (std.mem.eql(u8, args[1], "search")) "search" else if (std.mem.eql(u8, args[1], "scan")) "scan" else if (std.mem.eql(u8, args[1], "index")) "index" else if (std.mem.eql(u8, args[1], "schema")) "schema" else "unknown";
-    defer profile.report(init.io, command, @tagName(parsed.mode), succeeded);
-    const filters = try prepareFilters(init.gpa, &parsed);
+    defer profile.report(init.io, command, @tagName(arguments.mode), succeeded);
+    const filters = try prepareFilters(init.gpa, &arguments);
     defer {
         for (filters) |*filter| filter.deinit(init.gpa);
         init.gpa.free(filters);
     }
-    const mode = parsed.mode;
-    const input = parsed.input;
-    const value = parsed.value;
+    const mode = arguments.mode;
+    const input = arguments.input;
+    const value = arguments.value;
     if (std.mem.eql(u8, args[1], "index")) {
         // 文書への誤上書きと、索引自身の再取り込みを防ぐ。
         if (isMarkdown(value)) return error.IndexPathMustNotBeMarkdown;
+        if (config_file) |path| {
+            if (try isConfigFile(allocator, init.io, path, value)) return error.ConfigFileIsIndex;
+        }
         const documents = try loadCorpus(allocator, init.io, input);
         // 索引は文書を借用するため、arena内の本文は検索・符号化が終わるまで保持する。
         var index = try search.Index.initMode(init.gpa, documents, mode);
         defer index.deinit();
         const bytes = try storage.encode(allocator, &index);
         if (bytes.len >= max_index_bytes) return error.IndexTooLarge;
+        if (default_index != null) try std.Io.Dir.cwd().createDirPath(init.io, std.fs.path.dirname(value).?);
         // 書き込みと同期が成功してから置き換え、途中の失敗で既存索引を壊さない。
         var atomic = try std.Io.Dir.cwd().createFileAtomic(init.io, value, .{ .replace = true });
         defer atomic.deinit(init.io);
@@ -112,7 +150,7 @@ fn run(init: std.process.Init, reported: *bool) !void {
             succeeded = true;
             return;
         }
-        const matches = findMatches(init.gpa, &stored.index, &parsed, filters, false, &diagnostic) catch |err| {
+        const matches = findMatches(init.gpa, &stored.index, &arguments, filters, false, &diagnostic) catch |err| {
             reportDiagnostic(init.io, stored.index.documents, diagnostic, reported);
             return err;
         };
@@ -126,7 +164,7 @@ fn run(init: std.process.Init, reported: *bool) !void {
         const documents = try loadCorpus(allocator, init.io, input);
         // 正解の基準となる全文走査では索引を構築しない。
         const index: search.Index = .{ .allocator = allocator, .documents = documents, .postings = &.{} };
-        const matches = findMatches(init.gpa, &index, &parsed, filters, true, &diagnostic) catch |err| {
+        const matches = findMatches(init.gpa, &index, &arguments, filters, true, &diagnostic) catch |err| {
             reportDiagnostic(init.io, documents, diagnostic, reported);
             return err;
         };
@@ -143,6 +181,8 @@ fn run(init: std.process.Init, reported: *bool) !void {
 const Where = struct { pointer: []const u8, json: []const u8 };
 const Arguments = struct {
     mode: search.Mode,
+    mode_specified: bool = false,
+    default_index: bool = false,
     input: []const u8,
     value: []const u8 = "",
     all: bool = false,
@@ -154,6 +194,7 @@ const Arguments = struct {
 
 fn parseArguments(args: []const []const u8) !Arguments {
     if (args.len < 2) return error.InvalidArguments;
+    if (!std.mem.eql(u8, args[1], "index") and !std.mem.eql(u8, args[1], "search") and !std.mem.eql(u8, args[1], "scan") and !std.mem.eql(u8, args[1], "schema")) return error.InvalidArguments;
     if (std.mem.eql(u8, args[1], "schema")) {
         if (args.len != 3) return error.InvalidArguments;
         return .{ .mode = .literal, .input = args[2] };
@@ -166,6 +207,7 @@ fn parseArguments(args: []const []const u8) !Arguments {
     if (args.len > position and std.mem.eql(u8, args[position], "--mode")) {
         if (args.len <= position + 1) return error.InvalidArguments;
         parsed.mode = if (std.mem.eql(u8, args[position + 1], "literal")) .literal else if (std.mem.eql(u8, args[position + 1], "normalized")) .normalized else return error.InvalidArguments;
+        parsed.mode_specified = true;
         position += 2;
     }
     while (position < args.len) {
@@ -193,6 +235,12 @@ fn parseArguments(args: []const []const u8) !Arguments {
     if (args.len <= position) return error.InvalidArguments;
     if (parsed.all) {
         if (args.len == position + 1) return error.EmptyQuery;
+    } else if (args.len == position + 1 and (std.mem.eql(u8, args[1], "index") or std.mem.eql(u8, args[1], "search"))) {
+        parsed.default_index = true;
+        parsed.input = args[position];
+        parsed.value = args[position];
+        parsed.terms = args[position..];
+        return parsed;
     } else if (args.len != position + 2) return error.InvalidArguments;
     parsed.input = args[position];
     parsed.value = args[position + 1];
@@ -226,6 +274,22 @@ fn findMatches(allocator: std.mem.Allocator, index: *const search.Index, parsed:
         (if (parsed.all) try projected.searchAll(allocator, parsed.terms, parsed.mode) else try projected.searchMode(allocator, parsed.value, parsed.mode));
     if (projection) |value| value.restore(matches);
     return matches;
+}
+
+// 設定ファイル自身や、そのシンボリックリンク先を索引で上書きしない。
+fn isConfigFile(allocator: std.mem.Allocator, io: std.Io, config_file: []const u8, output: []const u8) !bool {
+    const current = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
+    const absolute_output = try std.fs.path.resolveAlloc(allocator, &.{ current, output });
+    if (std.mem.eql(u8, absolute_output, config_file)) return true;
+    const actual_config = std.Io.Dir.cwd().realPathFileAlloc(io, config_file, allocator) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    const actual_output = std.Io.Dir.cwd().realPathFileAlloc(io, output, allocator) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    return std.mem.eql(u8, actual_config, actual_output);
 }
 
 fn isMarkdown(path: []const u8) bool {
