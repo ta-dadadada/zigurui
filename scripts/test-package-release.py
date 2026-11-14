@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from package_release import DEPENDENCY_LICENSES, TARGETS, aggregate, archive_stem, build_target, package, stage_target, target_matrix, validate_tag, verify
+from package_release import DEPENDENCY_LICENSES, TARGETS, aggregate, archive_stem, build_target, compile_target, package, stage_target, target_matrix, validate_tag, verify
 
 
 class ReleasePackageTest(unittest.TestCase):
@@ -39,6 +39,11 @@ class ReleasePackageTest(unittest.TestCase):
             path.write_bytes(data)
             self.binaries[name] = path
         self.tag = "v0.1.0-alpha.1"
+
+    def test_release_tag_is_passed_to_the_binary_build(self):
+        with mock.patch("package_release.subprocess.run") as run:
+            compile_target("macos-arm64", self.tag)
+        self.assertIn(f"-Dversion={self.tag}", run.call_args.args[0])
 
     def test_dependency_license_is_required_before_packaging(self):
         for name, source in DEPENDENCY_LICENSES.items():
@@ -138,7 +143,7 @@ class ReleasePackageTest(unittest.TestCase):
         self.assertEqual(len(set(artifacts)), len(TARGETS))
         with mock.patch("package_release.compile_target", return_value=self.binaries["macos-arm64"]) as compile_one:
             output = build_target(self.tag, "macos-arm64", self.root / "single-target")
-        compile_one.assert_called_once_with("macos-arm64")
+        compile_one.assert_called_once_with("macos-arm64", self.tag)
         self.assertEqual({path.name for path in output.iterdir()}, {"zigurui", "target.json"})
         metadata = json.loads((output / "target.json").read_text())
         self.assertEqual(metadata["target"], "macos-arm64")

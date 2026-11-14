@@ -158,7 +158,7 @@ def _parse_hits(stdout: bytes, documents_root: Path) -> list[tuple[str, int]]:
     return hits
 
 
-def verify(binary: Path, root: Path, index: Path, manifest: dict) -> dict:
+def verify(binary: Path, root: Path, index: Path, manifest: dict, *, env=None) -> dict:
     """正しさと利用意図を分けて検証し、失敗詳細を含むJSON化可能な結果を返す。"""
     binary, index = Path(binary).resolve(), Path(index).resolve()
     documents_root = (Path(root) / "documents").resolve()
@@ -179,8 +179,8 @@ def verify(binary: Path, root: Path, index: Path, manifest: dict) -> dict:
                 expected.append((path, text[:offset].count("\n") + 1))
         result = {"id": query["id"], "text": query["text"], "category": query["category"], "expected_hit_count": len(expected)}
         try:
-            indexed = subprocess.run([str(binary), "search", str(index), query["text"]], capture_output=True, timeout=120, check=True).stdout
-            scanned = subprocess.run([str(binary), "scan", str(documents_root), query["text"]], capture_output=True, timeout=120, check=True).stdout
+            indexed = subprocess.run([str(binary), "search", str(index), query["text"]], capture_output=True, timeout=120, check=True, env=env).stdout
+            scanned = subprocess.run([str(binary), "scan", str(documents_root), query["text"]], capture_output=True, timeout=120, check=True, env=env).stdout
             actual = _parse_hits(indexed, documents_root)
             scan_actual = _parse_hits(scanned, documents_root)
             actual_handmade = sorted(path for path, _ in actual if path in handmade)

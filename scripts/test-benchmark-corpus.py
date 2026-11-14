@@ -1,6 +1,7 @@
 """合成corpusの決定性・fixtureの妥当性・独立oracleを確認する。"""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -64,13 +65,14 @@ class CorpusTest(unittest.TestCase):
         root = self.base / "cli"
         manifest = prepare(root, 100)
         index = root / "notes.idx"
-        subprocess.run([str(binary), "index", str(root / "documents"), str(index)], check=True, capture_output=True)
-        result = verify(binary, root, index, manifest)
+        env = {**os.environ, "XDG_CONFIG_HOME": str(self.base / "config")}
+        subprocess.run([str(binary), "index", str(root / "documents"), str(index)], check=True, capture_output=True, env=env)
+        result = verify(binary, root, index, manifest, env=env)
         self.assertTrue(result["passed"], result)
         self.assertEqual(len(result["query_results"]), 14)
         first_doc = root / "documents" / manifest["documents"][0]["path"]
         first_doc.write_text(first_doc.read_text() + "追記")
-        self.assertFalse(verify(binary, root, index, manifest)["corpus_integrity_passed"])
+        self.assertFalse(verify(binary, root, index, manifest, env=env)["corpus_integrity_passed"])
 
 
 if __name__ == "__main__":

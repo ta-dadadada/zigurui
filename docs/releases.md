@@ -23,6 +23,14 @@
 
 正規化の局所改善・AND・frontmatterを含む最終ソースから、macOS arm64とLinux x86_64-muslをReleaseFast・stripで構築した。両アーカイブの構造・チェックサム・Linuxの静的ELFと、utf8proc/libyamlのライセンスが正本と一致することを確認した。通常設定の統合チェックに成功し、その後のfilter早期拒否と補足テストを含めReleaseSafeの全49単体テストも成功した。CLI・梱包・独立検索評価の詳細は[frontmatterの評価](frontmatter-evaluation.md)を参照。Linux上の実行とC内部mallocへの確保失敗注入は未実施。タグ作成・push・公開はしていない。
 
+## インストール・XDG・設定対応のローカル検証（2026-11-14）
+
+今回の差分を含む両対象を `v0.1.0-alpha.1` でReleaseFast構築・梱包し、チェックサム・アーカイブ構造・実行形式の検査に成功した。このタグはローカル検証用の文字列で、タグ作成・push・Release公開は行っていない。
+
+macOS arm64では、実アーカイブを取得スタブ経由でインストーラへ渡し、実バイナリの新規導入・版表示・同版再導入、設定・索引・原本の保持とCLI結合テスト10件に成功した。設定は `config.json` のmodeと相対index_pathを実際に適用し、正規化した検索ができることも確認した。Linux x86_64版も同じ試験に成功した。Linuxはarm64のDocker環境上でx86_64実行互換機能を使用し、インストーラのunameは対象値のスタブを使った。Linux x86_64のネイティブ環境での導入確認とは区別する。
+
+`mise run check`、CLI結合テスト10件、梱包テスト11件に成功した。インストーラ試験6件はmacOSとLinuxのシェルで成功した。取得スタブを使い、再実行・更新・ダウングレード、取得・チェックサム・アーカイブ・権限の失敗、管理外の既存ファイルやリンクの保護、導入記録の保存失敗、バイナリ切替失敗、切替直後の中断からの再実行を確認する。実HTTPS取得とGitHub Actions上の実行は未検証。設定の不正・型・未知キー・重複・サイズ上限・読取権限、CLI上書きと相対パス基準、設定の上書き防止をCLI試験に含む。ベンチマーク処理10件（Linux専用1件はmacOSでskip）・合成文書4件・公開用要約5件の試験も成功した。検証用スクリプト・アセットは `.local/distribution-validation/` に保持している。
+
 ## バージョンと配布物
 
 タグは64文字以内で、`v0.1.0-alpha.1` のような `vX.Y.Z-(alpha|beta|rc).N` 形式に限定する。数値の先頭ゼロは認めず、安定版形式の `v1.0.0` は受け付けない。当面はすべてGitHubのプレリリースとし、Latestには設定しない。
@@ -37,6 +45,16 @@ SHA256SUMS
 
 各アーカイブは同名のディレクトリを1つ含み、その中に実行ファイル `zigurui`、`README.md`、必須の `LICENSE-utf8proc.md` と `LICENSE-libyaml.txt` を配置する。依存ライセンスの正本は [vendor/utf8proc/LICENSE.md](../vendor/utf8proc/LICENSE.md) と [vendor/libyaml/License](../vendor/libyaml/License) で、梱包元での欠落・配布アーカイブ内での欠落を拒否する。utf8procとlibyamlは静的に組み込む。`LICENSE`（`.md` / `.txt` 付きも含む）や `COPYING` がリポジトリに存在する場合は同梱する。実行ファイルはReleaseFastでビルドし、デバッグ情報を除去する。アーカイブには元の所有者名・生成時刻を残さない。開発用キャッシュ、ベンチマークのraw・生成文書・索引、ローカル資料は同梱しない。
 
+## インストーラと版表示
+
+利用者向けの導入・更新・復旧手順は [README](../README.md#インストール更新) を正本とする。`scripts/install.sh` は同じ配布アセットとSHA256SUMSを取得し、指定した版とチャンネルの形式を確認してから配置する。安定版の公開は引き続き対象外。インストーラの安定版指定は将来のアセットを選択できる形式だが、安定版アセットは現在用意していない。
+
+`compile_target(target, tag)` が `-Dversion=<tag>` を渡し、配布バイナリの `version` / `--version` はタグを表示する。通常のソースビルドは `zigurui dev`。インストーラは現行の梱包契約に合わせ、utf8procとlibyamlの両ライセンスを必要とする。版表示・既定XDG保存先・JSON設定は今回の変更を含むバイナリが必要。
+
+インストーラの公開URLは未確定。READMEのGitHub raw URLはmainへの反映後の候補で、現時点の公開済み導入先ではない。公開前にURL・対象タグ・各OSでの導入と版表示を確認する。
+
+ローカルでは `python3 scripts/test-install.py` で取得スタブと隔離したHOMEを用い、導入・再実行・更新・ダウングレード・失敗時保護を検証する。これはHTTPS経由の実取得やLinuxバイナリ実行の証拠ではない。CIとReleaseの検証でも同じテストを実行する。
+
 ## ダウンロード後の確認
 
 公開後は対象タグのReleaseページから、自分のOS・CPUに対応するアーカイブと `SHA256SUMS` を同じディレクトリへ保存する。次はmacOS arm64、タグ `v0.1.0-alpha.1` の例。タグとファイル名は入手した版に合わせる。
@@ -46,12 +64,13 @@ awk '$2 == "zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz"' SHA256SUMS \
   | shasum -a 256 -c -
 tar -xzf zigurui-v0.1.0-alpha.1-macos-arm64.tar.gz
 export PATH="$PWD/zigurui-v0.1.0-alpha.1-macos-arm64:$PATH"
+zigurui --version
 zigurui help
 ```
 
 Linuxでは `linux-x86_64` のファイルを選び、同じ確認を `sha256sum -c -` で行う。チェックサムが一致した後に解凍し、展開先を `PATH` に追加して起動する。上記の `export` は現在のシェルだけに適用される。SHA-256はダウンロードしたファイルと公開された配布物の一致を確認するもので、配布者の署名ではない。
 
-文書の索引作成・検索コマンドは[READMEの使い方](../README.md#使い方)を参照する。CLIには版番号の表示コマンドがないため、入手したタグとアーカイブ名を記録しておく。
+文書の索引作成・検索コマンドは[READMEの使い方](../README.md#使い方)を参照する。今回の変更を含む配布物は `./zigurui-v0.1.0-alpha.1-macos-arm64/zigurui --version` でタグを確認する。
 
 ## ローカルでの配布準備
 

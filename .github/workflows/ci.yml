@@ -49,6 +49,9 @@ jobs:
       - name: Test release packaging
         run: python3 scripts/test-package-release.py
 
+      - name: Test installer without network access
+        run: python3 scripts/test-install.py
+
   benchmark:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

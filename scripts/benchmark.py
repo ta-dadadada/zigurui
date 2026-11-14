@@ -55,7 +55,7 @@ def summarize(samples):
     }
 
 
-def measure(command, timeout_seconds=120):
+def measure(command, timeout_seconds=120, env=None):
     """stdoutを捨ててpipe待ちを避け、wait4の同一子プロセスのrusageを記録する。
 
     RSSはexec前も含む子の生存期間の最大値。Linuxでは起動元のメモリ履歴が
@@ -73,7 +73,7 @@ def measure(command, timeout_seconds=120):
         child = None
         started = time.perf_counter_ns()
         try:
-            child = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=stderr)
+            child = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=stderr, env=env)
             _, status, usage = os.wait4(child.pid, 0)
             finished = time.perf_counter_ns()
             child.returncode = os.waitstatus_to_exitcode(status)
@@ -146,6 +146,8 @@ def benchmark(args):
     run_dir = args.output_root.resolve() / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     binary = args.binary.resolve()
+    # 利用者の設定に左右されず、従来のliteral条件を測定する。
+    cli_env = {**os.environ, "XDG_CONFIG_HOME": str(run_dir / "config")}
     result_path = run_dir / "results.json"
     result = {
         "schema_version": 1, "status": "running",
@@ -159,6 +161,7 @@ def benchmark(args):
             "percentile_method": "nearest-rank: sorted[ceil(0.95*n)-1]",
             "schedule": "sequential; query order shuffled per round with fixed seed; search/scan order alternates by round and query",
             "cache_policy": "warm filesystem cache; no cache eviction; correctness verification precedes timed queries",
+            "cli_config_policy": "isolated empty XDG_CONFIG_HOME; built-in literal defaults",
             "invocation": [sys.executable, *sys.argv],
         },
         "environment": None, "datasets": [],
@@ -185,14 +188,14 @@ def benchmark(args):
             }
             result["datasets"].append(dataset)
             for repeat in range(args.index_repeats):
-                sample = measure([binary, "index", corpus_root / "documents", index_path], args.timeout)
+                sample = measure([binary, "index", corpus_root / "documents", index_path], args.timeout, env=cli_env)
                 sample.update(order=order, repeat=repeat)
                 order += 1
                 dataset["index"]["samples"].append(sample)
                 save(result_path, result)
             dataset["index"]["summary"] = summarize(dataset["index"]["samples"])
             dataset["index_bytes"] = index_path.stat().st_size
-            verification = benchmark_corpus.verify(binary, corpus_root, index_path, manifest)
+            verification = benchmark_corpus.verify(binary, corpus_root, index_path, manifest, env=cli_env)
             dataset["verification"] = verification
             dataset["correctness"] = {
                 "passed": verification["corpus_integrity_passed"] and all(q["stdout_equal"] and q["oracle_equal"] for q in verification["query_results"]),
@@ -216,7 +219,7 @@ def benchmark(args):
                         methods = ("search", "scan") if (repeat + position) % 2 == 0 else ("scan", "search")
                         for method in methods:
                             target = index_path if method == "search" else corpus_root / "documents"
-                            sample = measure([binary, method, target, query["text"]], args.timeout)
+                            sample = measure([binary, method, target, query["text"]], args.timeout, env=cli_env)
                             sample.update(order=order, repeat=repeat)
                             order += 1
                             query[method][phase].append(sample)
