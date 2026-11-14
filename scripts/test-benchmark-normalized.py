@@ -2,6 +2,10 @@
 """正規化の独立oracle、候補条件、計測形式と公開投影の境界を確認する。"""
 import copy
 import json
+import os
+from pathlib import Path
+import sys
+import tempfile
 import unittest
 
 import benchmark_normalized as runner
@@ -40,6 +44,17 @@ class OracleTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "index bytes differ"):
             runner.index_identity(indices, True)
         self.assertFalse(runner.index_identity(indices, False)["groups"][1]["identical"])
+
+
+class ExecutionTest(unittest.TestCase):
+    def test_execute_passes_config_environment_to_the_child(self):
+        with tempfile.TemporaryDirectory(prefix="zigurui-measure-env-") as temporary:
+            root = Path(temporary).resolve()
+            env = {**os.environ, "XDG_CONFIG_HOME": str(root / "empty-config")}
+            _, _, output = runner.execute(
+                [sys.executable, "-c", "import os;print(os.environ['XDG_CONFIG_HOME'])"],
+                root / "child.stderr", 10, capture=True, env=env)
+            self.assertEqual(output.decode().strip(), env["XDG_CONFIG_HOME"])
 
 
 class ProfileTest(unittest.TestCase):

@@ -151,6 +151,8 @@ def project(raw):
 def run(args):
     root = args.output_root.resolve() / args.run_id
     root.mkdir(parents=True, exist_ok=False)
+    # 正解照合と計測で同じ空の設定保存先を使い、利用者の設定を引き継がない。
+    cli_env = {**os.environ, "XDG_CONFIG_HOME": str(root / "config")}
     diagnostics = root / "diagnostics"
     diagnostics.mkdir()
     indices = root / "indices"
@@ -175,7 +177,7 @@ def run(args):
 
     def correctness(cmd, success=True, error=None, cwd=None):
         nonlocal order
-        process = subprocess.run([os.fspath(arg) for arg in cmd], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=args.timeout)
+        process = subprocess.run([os.fspath(arg) for arg in cmd], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=args.timeout, env=cli_env)
         (diagnostics / f"{order:06d}.stdout").write_bytes(process.stdout)
         (diagnostics / f"{order:06d}.stderr").write_bytes(process.stderr)
         order += 1
@@ -186,7 +188,7 @@ def run(args):
     def measured(binary, method, mode, target, terms, all_terms):
         nonlocal order
         path = diagnostics / f"{order:06d}.stderr"
-        sample, stderr, _ = normalized.execute(command(binary, method, mode, target, terms, all_terms), path, args.timeout)
+        sample, stderr, _ = normalized.execute(command(binary, method, mode, target, terms, all_terms), path, args.timeout, env=cli_env)
         sample["order"] = order
         order += 1
         return sample, stderr

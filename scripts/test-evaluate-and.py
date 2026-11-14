@@ -2,12 +2,47 @@
 """ANDの独立評価が語句・正規化・原文行と候補件数を区別することを確認する。"""
 import copy
 import json
+import os
+from pathlib import Path
+import tempfile
+from unittest import mock
 import unittest
 
 import evaluate_and as evaluation
 
 
 class AndOracleTest(unittest.TestCase):
+    def test_runner_ignores_user_config_for_correctness_and_measurement(self):
+        binary = Path(__file__).resolve().parents[1] / "zig-out/bin/zigurui"
+        if not binary.is_file():
+            self.skipTest("ziguruiを先にビルドする")
+
+        class MeasurementReached(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory(prefix="zigurui-and-config-") as temporary:
+            root = Path(temporary).resolve()
+            user_config = root / "user-config/zigurui/config.json"
+            user_config.parent.mkdir(parents=True)
+            for case, contents in (("normalized", '{"mode":"normalized"}'), ("invalid", '{"unknown":true}')):
+                with self.subTest(case=case):
+                    user_config.write_text(contents)
+                    args = evaluation.arguments(["--plain", str(binary), "--profile", str(binary),
+                        "--output-root", str(root / "runs"), "--run-id", case,
+                        "--size", "6", "--index-repeats", "1", "--warmups", "0", "--repeats", "1"])
+                    def stop_before_measurement(*_args, **kwargs):
+                        # 正解照合を実際に終えてから、性能は計測せず環境の伝播だけを確認する。
+                        self.assertEqual(kwargs["env"]["XDG_CONFIG_HOME"], str(root / "runs" / case / "config"))
+                        raise MeasurementReached
+                    with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(user_config.parent.parent)}), \
+                            mock.patch.object(evaluation.benchmark, "environment", return_value={}), \
+                            mock.patch.object(evaluation.normalized, "execute", side_effect=stop_before_measurement) as measured:
+                        with self.assertRaises(MeasurementReached):
+                            evaluation.run(args)
+                        measured.assert_called_once()
+                    self.assertEqual(user_config.read_text(), contents)
+                    self.assertFalse((root / "runs" / case / "config").exists())
+
     def test_phrase_terms_do_not_split_spaces(self):
         texts = {"a.md": "alpha beta\ngamma", "b.md": "alpha\nbeta\ngamma"}
         config = evaluation.CONFIGURATIONS[0]
