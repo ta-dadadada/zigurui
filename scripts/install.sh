@@ -5,9 +5,10 @@ set -eu
 fail() { printf 'zigurui installer: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
-Usage: sh install.sh --version vX.Y.Z[-alpha.N|-beta.N|-rc.N] [--channel stable|prerelease] [--bin-dir /absolute/path]
+Usage: sh install.sh --version vX.Y.Z[-alpha.N|-beta.N|-rc.N] [--channel stable|prerelease] [--bin-dir /absolute/path] [--update]
 版の指定は必須。プレリリースには --channel prerelease も指定する。
 既定の配置先は $HOME/.local/bin。既存の管理外ファイルは上書きしない。
+--updateは、導入記録に一致する既存バイナリがある場合だけ更新する。
 EOF
 }
 
@@ -15,8 +16,10 @@ main() {
     version=
     channel=stable
     bin_dir=
+    update_only=0
     while [ "$#" -gt 0 ]; do
         case "$1" in
+            --update) update_only=1; shift ;;
             --version|--channel|--bin-dir)
                 [ "$#" -ge 2 ] || fail "$1 には値が必要です"
                 case "$1" in
@@ -139,6 +142,9 @@ fetch() {
 }
 check_destination() {
     [ ! -L "$destination" ] || fail '配置先はシンボリックリンクです。他の管理方法で更新するか別の--bin-dirを指定してください'
+    if [ "$update_only" = 1 ] && [ ! -e "$destination" ]; then
+        fail '更新対象がありません。外部インストーラで導入し直してください'
+    fi
     if [ -e "$destination" ]; then
         [ -f "$destination" ] && [ ! -L "$metadata/receipts" ] || fail '管理外の配置先は上書きしません。別の--bin-dirを指定してください'
         installed_hash=$(digest "$destination")

@@ -8,6 +8,7 @@ const storage = @import("storage.zig");
 const frontmatter = @import("frontmatter.zig");
 const Paths = @import("paths.zig").Paths;
 const configuration = @import("config.zig");
+const update = @import("update.zig");
 const version = @import("build_options").version;
 
 const max_index_bytes = 1024 * 1024 * 1024;
@@ -25,6 +26,7 @@ const help =
     \\  zigurui help
     \\  zigurui paths
     \\  zigurui version / --version
+    \\  zigurui update --version <tag> [--channel stable|prerelease]
     \\
     \\literalは原文の連続部分一致。normalizedはNFKC・full case foldingを使う。
     \\空白も検索語の一部。空白を含む場合は引用符で囲む。
@@ -49,6 +51,8 @@ pub fn main(init: std.process.Init) void {
             error.UnsupportedVersion, error.UnsupportedSearchProfile, error.IndexModeMismatch => " (index --modeで索引を再構築してください)",
             error.NormalizationTooLarge => " (非ASCIIの正規化は各中間表現4,194,304コードポイントまでです)",
             error.HomeDirectoryUnavailable => " (絶対パスのHOMEまたは各XDG_*_HOMEを設定してください)",
+            error.UnsupportedUpdateLocation => " (この配置先はupdateの対象外です。導入元の管理方法で更新してください)",
+            error.UpdateFailed => " (更新できませんでした。上記の理由を確認し、必要なら外部インストーラを使ってください)",
             else => "",
         };
         const message = std.fmt.allocPrint(init.arena.allocator(), "zigurui: {s}{s}\n", .{ config_diagnostic orelse @errorName(err), hint }) catch "zigurui: OutOfMemory\n";
@@ -71,6 +75,10 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
         return;
     }
     const showing_paths = args.len == 2 and std.mem.eql(u8, args[1], "paths");
+    if (args.len >= 2 and std.mem.eql(u8, args[1], "update")) {
+        try update.run(init, args[2..]);
+        return;
+    }
     // 引数エラーは設定の有無にかかわらず診断する。
     const parsed: ?Arguments = if (showing_paths) null else try parseArguments(args);
     // HOMEがなく設定先を特定できない場合も、既存の明示パス操作は利用できる。

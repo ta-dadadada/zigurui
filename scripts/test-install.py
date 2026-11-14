@@ -47,10 +47,10 @@ cp "$FIXTURES/${url##*/}" "$out"
         path.write_text(text)
         path.chmod(0o755)
 
-    def fixture(self, tag=TAG, target="macos-arm64", invalid=None):
+    def fixture(self, tag=TAG, target="macos-arm64", invalid=None, executable=None):
         stem = f"zigurui-{tag}-{target}"
         asset = self.assets / f"{stem}.tar.gz"
-        binary = f'#!/bin/sh\nprintf "zigurui {tag}\\n"\n'.encode()
+        binary = executable if executable is not None else f'#!/bin/sh\nprintf "zigurui {tag}\\n"\n'.encode()
         with tarfile.open(asset, "w:gz", format=tarfile.USTAR_FORMAT) as tar:
             payload = {"zigurui": binary, "README.md": b"readme", "LICENSE-utf8proc.md": b"license", "LICENSE-libyaml.txt": b"yaml license"}
             if invalid == "missing":
@@ -142,6 +142,18 @@ cp "$FIXTURES/${url##*/}" "$out"
                 self.assertEqual((self.bin / "zigurui").read_bytes(), before)
                 self.assertEqual(receipt_path.read_bytes(), receipt)
                 self.assertFalse((self.bin / ".zigurui-install.lock").exists())
+
+    def test_update_requires_existing_managed_binary_before_fetch(self):
+        self.run_install("--update", success=False)
+        self.assertFalse((self.bin / "zigurui").exists())
+        self.run_install()
+        before = (self.bin / "zigurui").read_bytes()
+        self.run_install("--update")
+        self.assertEqual((self.bin / "zigurui").read_bytes(), before)
+        (self.bin / "zigurui").write_bytes(b"changed by another manager")
+        result = self.run_install("--update", success=False)
+        self.assertIn("導入記録と異なります".encode(), result.stderr)
+        self.assertEqual((self.bin / "zigurui").read_bytes(), b"changed by another manager")
 
     def test_unmanaged_modified_and_symlink_destinations_are_refused(self):
         self.bin.mkdir(parents=True)

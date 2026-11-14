@@ -12,5 +12,6 @@
         "testdata",
         "README.md",
         "LICENSE",
+        "scripts/install.sh",
     },
 }

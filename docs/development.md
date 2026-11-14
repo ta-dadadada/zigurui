@@ -27,6 +27,7 @@ Git hookを未導入の場合は、既存hookと共有範囲を確認してか�
 | `mise run check` | 整形・ワークフローの検査・ビルド・単体テスト |
 | `mise exec -- lefthook validate` | Git hookの設定を検証 |
 | `mise exec -- lefthook run pre-commit --all-files` | コミット前の検査を作業ツリー全体に手動実行 |
+| `python3 scripts/test-update.py` | 管理済み実行ファイルの更新結合テスト（取得はスタブ） |
 | `python3 scripts/test-install.py` | インストーラの隔離環境テスト（取得はスタブ） |
 | `python3 scripts/test-cli.py` | ビルド済み実行ファイルの結合テスト（Python 3が必要） |
 | `python3 scripts/test-benchmark-corpus.py` | 合成文書・独立した正解判定の単体テスト |
@@ -68,6 +69,7 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 - `src/frontmatter.zig` / `src/yaml_bridge.c`: 型付きメタデータ、スキーマ集計、YAML解析
 - `src/profile.zig`: 専用ビルドの時間・件数計測
 - `src/storage.zig`: バージョン付き索引形式の符号化・復号・検査
+- `src/update.zig`: 実行中の管理済みバイナリの更新を組み込みインストーラへ委譲
 - `src/config.zig`: JSON設定の読み込み・検証と設定内の相対索引パス解決
 - `src/paths.zig`: XDG保存先の解決
 - `scripts/install.sh`: Releaseの検証とユーザー権限での導入・更新
