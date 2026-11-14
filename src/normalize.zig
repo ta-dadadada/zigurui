@@ -192,6 +192,43 @@ test "正規化のallocation failureで途中の所有メモリを残さない" 
     try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationScenario, .{});
 }
 
+fn expectExpansionLimit(cp: u21, fold: bool, expected: [2]u21) !void {
+    const allocator = std.testing.allocator;
+    const repeated = max_codepoints / 2;
+    // 入力は上限内に保ち、最後の1文字だけで中間出力を上限+1にする。
+    const input = try allocator.alloc(Point, repeated + 1);
+    defer allocator.free(input);
+    const width = try std.unicode.utf8CodepointSequenceLength(cp);
+    for (input[0..repeated], 0..) |*point, i| {
+        point.* = .{ .cp = cp, .ccc = 0, .start = @intCast(i * width), .end = @intCast((i + 1) * width) };
+    }
+    input[repeated] = .{ .cp = 'a', .ccc = 0, .start = @intCast(repeated * width), .end = @intCast(repeated * width + 1) };
+    try std.testing.expect(input.len <= max_codepoints);
+    {
+        var exact = try mapped(allocator, input[0..repeated], fold, !fold);
+        defer exact.deinit(allocator);
+        try std.testing.expectEqual(max_codepoints, exact.items.len);
+        try std.testing.expectEqual(expected[0], exact.items[0].cp);
+        try std.testing.expectEqual(expected[1], exact.items[1].cp);
+        try std.testing.expectEqual(expected[0], exact.items[exact.items.len - 2].cp);
+        try std.testing.expectEqual(expected[1], exact.items[exact.items.len - 1].cp);
+    }
+    try std.testing.expectError(error.NormalizationTooLarge, mapped(allocator, input, fold, !fold));
+}
+
+test "分解の中間表現は実上限ちょうどで成功し1コードポイント超過を拒否する" {
+    // ㌔はNFKCでキ・ロに展開し、合成でも2コードポイントのまま。
+    try expectExpansionLimit('㌔', false, .{ 'キ', 'ロ' });
+}
+
+test "foldingの中間表現は実上限ちょうどで成功し1コードポイント超過を拒否する" {
+    // ßは前段のNFKCでは増えず、foldingで初めてs・sに展開する。
+    const nfkc = try testStage("ß", false);
+    defer std.testing.allocator.free(nfkc);
+    try std.testing.expectEqualStrings("ß", nfkc);
+    try expectExpansionLimit('ß', true, .{ 's', 's' });
+}
+
 fn isAscii(text: []const u8) bool {
     for (text) |byte| {
         if (byte >= 128) return false;
