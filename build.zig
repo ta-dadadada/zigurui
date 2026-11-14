@@ -9,6 +9,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .strip = b.option(bool, "strip", "配布用にデバッグ情報とシンボルを除去する"),
     });
+    main_module.link_libc = true;
+    main_module.addIncludePath(b.path("vendor/utf8proc"));
+    main_module.addCSourceFile(.{ .file = b.path("vendor/utf8proc/utf8proc.c"), .flags = &.{"-DUTF8PROC_STATIC"} });
+    main_module.addCSourceFile(.{ .file = b.path("src/unicode_bridge.c"), .flags = &.{"-DUTF8PROC_STATIC"} });
+    main_module.addAnonymousImport("NormalizationTest", .{ .root_source_file = b.path("testdata/unicode/NormalizationTest.txt") });
+    main_module.addAnonymousImport("CaseFoldingTest", .{ .root_source_file = b.path("testdata/unicode/CaseFolding.txt") });
 
     const exe = b.addExecutable(.{
         .name = "zigurui",

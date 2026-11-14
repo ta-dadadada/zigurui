@@ -16,6 +16,7 @@ import tarfile
 REPOSITORY = Path(__file__).resolve().parent.parent
 TARGETS = {"macos-arm64": "aarch64-macos", "linux-x86_64": "x86_64-linux-musl"}
 LICENSE_NAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING")
+DEPENDENCY_LICENSES = {"LICENSE-utf8proc.md": "vendor/utf8proc/LICENSE.md"}
 TAG_PATTERN = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*)", re.ASCII)
 TARGET_FILES = {"zigurui", "target.json"}
 PRIVATE_MARKERS = (b"/Users/", b"/home/", b"/root/", b"/private/var/folders/", b".debug_info", b"__DWARF")
@@ -140,6 +141,8 @@ def package(tag: str, binaries: dict[str, Path], output: Path, repository: Path 
     for name in LICENSE_NAMES:
         if (repository / name).is_file():
             documents[name] = (repository / name).read_bytes()
+    for name, source in DEPENDENCY_LICENSES.items():
+        documents[name] = (repository / source).read_bytes()
     payloads = {}
     for target, binary in binaries.items():
         data = binary.read_bytes()
@@ -189,7 +192,7 @@ def verify(tag: str, directory: Path) -> None:
         stem = archive_stem(tag, target)
         with tarfile.open(archive, "r:gz") as tar:
             members = tar.getmembers()
-            expected_required = {f"{stem}/zigurui", f"{stem}/README.md"}
+            expected_required = {f"{stem}/zigurui", f"{stem}/README.md"} | {f"{stem}/{name}" for name in DEPENDENCY_LICENSES}
             allowed = expected_required | {f"{stem}/{license_name}" for license_name in LICENSE_NAMES}
             actual = [member.name for member in members]
             if not expected_required <= set(actual) <= allowed or len(actual) != len(set(actual)):

@@ -56,6 +56,46 @@ class CliTest(unittest.TestCase):
         self.command("index", self.docs, self.index)
         self.assertIn(b"new.MD", self.command("search", self.index, "検索").stdout)
 
+    def test_normalized_search_scan_original_excerpt_and_literal_mode(self):
+        source = "前置き\nＡＢＣ ｶﾞﾗｽ か\u3099 ㌔ Straße\n👩\u200d💻 葛\U000e0100\n"
+        path = self.docs / "normalized.md"
+        path.write_text(source, encoding="utf-8")
+        self.command("index", "--mode", "normalized", self.docs, self.index)
+        for query in ("abc", "ＡＢＣ", "ガラス", "ｶﾞﾗｽ", "が", "か\u3099", "㌔", "ロ", "STRASSE", "s", "👩\u200d💻", "葛\U000e0100", " ", "\n", "absent"):
+            with self.subTest(query=query):
+                indexed = self.command("search", "--mode", "normalized", self.index, query).stdout
+                scanned = self.command("scan", "--mode", "normalized", self.docs, query).stdout
+                self.assertEqual(indexed, scanned)
+                indexed.decode("utf-8")
+        expected = f"{path}:2: ＡＢＣ ｶﾞﾗｽ か\u3099 ㌔ Straße\n".encode()
+        self.assertEqual(self.command("search", "--mode", "normalized", self.index, "abc").stdout, expected)
+        self.assertEqual(self.command("search", self.index, "abc").stdout, b"")
+        self.assertEqual(self.command("search", "--mode", "literal", self.index, "ＡＢＣ").stdout, expected)
+        for query in ("👩💻", "か\u309b", "ガラズ", "STRASSE missing"):
+            self.assertEqual(self.command("search", "--mode", "normalized", self.index, query).stdout, b"")
+        self.assertEqual(path.read_text(encoding="utf-8"), source)
+        path.write_text("変更した本文", encoding="utf-8")
+        self.assertEqual(self.command("search", "--mode", "normalized", self.index, "abc").stdout, expected)
+        self.command("index", "--mode", "normalized", self.docs, self.index)
+        self.assertEqual(self.command("search", "--mode", "normalized", self.index, "abc").stdout, b"")
+
+    def test_modes_empty_query_and_old_index_fail_explicitly(self):
+        self.command("index", self.docs, self.index)
+        result = self.command("search", "--mode", "normalized", self.index, "日本", success=False)
+        self.assertIn(b"IndexModeMismatch", result.stderr)
+        self.assertIn("再構築".encode(), result.stderr)
+        for command, target in (("search", self.index), ("scan", self.docs)):
+            self.command(command, "--mode", "other", target, "日本", success=False)
+            self.command(command, "--mode", "normalized", target, "", success=False)
+        self.command("index", "--mode", "normalized", self.docs, self.index)
+        self.command("search", "--mode", "normalized", self.index, "", success=False)
+        old = bytearray(self.index.read_bytes())
+        old[8:12] = (1).to_bytes(4, "little")
+        self.index.write_bytes(old)
+        result = self.command("search", self.index, "日本", success=False)
+        self.assertIn(b"UnsupportedVersion", result.stderr)
+        self.assertIn("再構築".encode(), result.stderr)
+
     def test_failed_build_preserves_existing_index(self):
         self.command("index", self.docs, self.index)
         original = self.index.read_bytes()

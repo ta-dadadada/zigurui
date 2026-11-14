@@ -3,9 +3,10 @@
 
 const std = @import("std");
 const search = @import("search.zig");
+const normalize = @import("normalize.zig");
 
 /// 対応する保存形式の版。互換性のない変更時に更新する。
-pub const format_version: u32 = 1;
+pub const format_version: u32 = 2;
 const magic = "ZIGURUI\x00";
 const header_size = magic.len + 4 + 8 + 8;
 
@@ -38,6 +39,9 @@ pub fn encode(allocator: std.mem.Allocator, index: *const search.Index) ![]u8 {
     try appendInt(&output, allocator, u64, 0);
     try appendInt(&output, allocator, u64, index.documents.len);
     try appendInt(&output, allocator, u64, index.postings.len);
+    try appendInt(&output, allocator, u32, @backingInt(index.mode));
+    try appendInt(&output, allocator, u32, if (index.mode == .normalized) normalize.semantic_version else 0);
+    try appendInt(&output, allocator, u32, if (index.mode == .normalized) normalize.unicode_version else 0);
     for (index.documents) |document| {
         try appendBytes(&output, allocator, document.path);
         try appendBytes(&output, allocator, document.text);
@@ -76,6 +80,15 @@ pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []u8) !StoredIndex {
     var reader: Reader = .{ .bytes = bytes[header_size..] };
     const document_count = try reader.length();
     const posting_count = try reader.length();
+    const mode: search.Mode = switch (try reader.int(u32)) {
+        0 => .literal,
+        1 => .normalized,
+        else => return error.UnsupportedSearchProfile,
+    };
+    const semantic_version = try reader.int(u32);
+    const unicode_version = try reader.int(u32);
+    if (semantic_version != (if (mode == .normalized) normalize.semantic_version else @as(u32, 0)) or
+        unicode_version != (if (mode == .normalized) normalize.unicode_version else @as(u32, 0))) return error.UnsupportedSearchProfile;
     // 宣言件数による過大な確保を避ける。各文書は長さ2個で最低16バイト必要。
     if (document_count > reader.remaining() / 16) return error.InvalidIndex;
     const documents = try allocator.alloc(search.Document, document_count);
@@ -110,7 +123,7 @@ pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []u8) !StoredIndex {
     }
     if (reader.remaining() != 0) return error.InvalidIndex;
     return .{
-        .index = .{ .allocator = allocator, .documents = documents, .postings = postings },
+        .index = .{ .allocator = allocator, .documents = documents, .postings = postings, .mode = mode },
         .backing = bytes,
     };
 }
@@ -218,10 +231,10 @@ test "切り詰め・破損・未対応version・末尾追加を拒否する" {
     bytes[0] ^= 1;
     try std.testing.expectError(error.InvalidIndex, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
     bytes[0] ^= 1;
-    bytes[8] = 2;
+    bytes[8] = 3;
     try std.testing.expectError(error.UnsupportedVersion, decode(allocator, bytes));
     try std.testing.expectError(error.UnsupportedVersion, decodeOwned(allocator, try allocator.dupe(u8, bytes)));
-    bytes[8] = 1;
+    bytes[8] = 2;
     const appended = try allocator.alloc(u8, bytes.len + 1);
     defer allocator.free(appended);
     @memcpy(appended[0..bytes.len], bytes);
@@ -275,7 +288,7 @@ test "checksumが正しくても過大な件数や文字列長を拒否する" {
     defer index.deinit();
     const original = try encode(allocator, &index);
     defer allocator.free(original);
-    for ([_]usize{ header_size, header_size + 8, header_size + 16 }) |offset| {
+    for ([_]usize{ header_size, header_size + 8, header_size + 28 }) |offset| {
         const bytes = try allocator.dupe(u8, original);
         defer allocator.free(bytes);
         putInt(u64, bytes[offset..][0..8], std.math.maxInt(u64));
@@ -333,4 +346,35 @@ fn ownedAllocationRoundtrip(allocator: std.mem.Allocator) !void {
 
 test "所有入力の復元がallocation失敗しても入力と途中配列を解放する" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, ownedAllocationRoundtrip, .{});
+}
+
+test "正規化profileの保存復元とliteral走査を維持する" {
+    const allocator = std.testing.allocator;
+    const docs = [_]search.Document{.{ .path = "a.md", .text = "前\nＡＢＣ ｶﾞ ㌔" }};
+    var index = try search.Index.initMode(allocator, &docs, .normalized);
+    defer index.deinit();
+    const bytes = try encode(allocator, &index);
+    defer allocator.free(bytes);
+    var stored = try decode(allocator, bytes);
+    defer stored.deinit();
+    try std.testing.expectEqual(search.Mode.normalized, stored.index.mode);
+    for ([_][]const u8{ "abc", "ＡＢＣ", "ｶﾞ", "ガ", "ロ", "㌔", "x" }) |query| {
+        const expected = try index.scanMode(allocator, query, .normalized);
+        defer allocator.free(expected);
+        const actual = try stored.index.searchMode(allocator, query, .normalized);
+        defer allocator.free(actual);
+        try std.testing.expectEqualSlices(search.Match, expected, actual);
+    }
+    const literal = try stored.index.search(allocator, "abc");
+    defer allocator.free(literal);
+    try std.testing.expectEqual(@as(usize, 0), literal.len);
+    for ([_]usize{ header_size + 16, header_size + 20, header_size + 24 }) |offset| {
+        const bad = try allocator.dupe(u8, bytes);
+        defer allocator.free(bad);
+        putInt(u32, bad[offset..][0..4], 999);
+        putInt(u64, bad[20..28], checksum(bad[header_size..]));
+        try std.testing.expectError(error.UnsupportedSearchProfile, decode(allocator, bad));
+    }
+    bytes[8] = 1;
+    try std.testing.expectError(error.UnsupportedVersion, decode(allocator, bytes));
 }
