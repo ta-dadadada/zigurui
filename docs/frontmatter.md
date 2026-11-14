@@ -16,7 +16,7 @@ zigurui scan --mode normalized --all --frontmatter --where /tags '"技術"' --wh
 
 ## 型と絞り込み
 
-`--where <selector> <JSON-scalar>` は2引数を取る。YAMLキーは従来どおり `/status` などのJSON Pointerで指定し、`--frontmatter` との併用が必要。ファイル情報は別の名前空間で指定する。
+`--where <selector> <JSON-scalar>` は2引数を取る。YAMLキーは従来どおり `/status` などのキー経路で指定し、`--frontmatter` との併用が必要。ファイル情報は別の名前空間で指定する。
 
 | selector | 値 |
 | --- | --- |
@@ -39,14 +39,16 @@ zigurui scan --mode normalized --all --frontmatter --where /tags '"技術"' --wh
 | JSON数値文法の整数 | integer（i64） |
 | JSON数値文法で小数点・指数を含む数値 | float（有限f64） |
 | `yes`、`on`、`01`、`True`、日付、その他のplain scalar | string |
-| scalarだけの配列 | array |
+| scalar・object・arrayを含む配列 | array |
 | マッピング | object |
 
 数値が範囲外の場合は `FrontmatterNumberOutOfRange`。非ゼロ値が0へunderflowするfloatも拒否する。文字列として扱う場合は引用する。`1` と `1.0` は別の型なので一致しない。同じ型の数値は値で比較するため、floatの `1.0` と `1e0` は一致する。
 
-条件の期待値は有効なJSONのnull・boolean・数値・stringだけで、objectとarrayは拒否する。複数条件はすべて満たす必要がある。対象がscalarなら型と値の一致、scalar配列ならいずれかの要素への一致で判定する。未設定はnullと一致しない。objectにscalar条件を指定した文書は型不一致となる。
+条件の期待値は有効なJSONのnull・boolean・数値・stringだけで、objectとarrayは拒否する。複数条件はすべて満たす必要がある。対象がscalarなら型と値の一致、配列なら直下のscalar要素のいずれかへの一致で判定する。末端の配列を再帰的に平坦化しないため、`items: [[1]]` は `/items` の `1` に一致しない。未設定はnullと一致しない。objectにscalar条件を指定した文書は型不一致となる。
 
-JSON Pointerは `/status` や `/author/name` の形式。キー中の `/` は `~1`、`~` は `~0` と表す。`=` を含むキーもそのまま指定できる。空pointer（root全体）は拒否し、`/` は空文字列のキーを指す。配列の添字による絞り込みは行わない。
+キー経路はJSON Pointerのescapeを使う `/status` や `/author/name` の形式。キー中の `/` は `~1`、`~` は `~0` と表す。`=` を含むキーもそのまま指定できる。空pointer（root全体）は拒否し、`/` は空文字列のキーを指す。配列の添字による絞り込みは行わず、数値tokenもobjectのキーとして扱う。
+
+経路の途中にある配列は再帰的に透過する。`items: [[{name: a}], {name: b}]` なら `/items/name` は `"a"` と `"b"` のどちらにも一致する。scalar・object・arrayの混在、空配列、配列直下の配列も許可する。複数の `--where` はそれぞれ文書内のいずれかの値で満たせばよく、別要素が各条件を満たしても一致する。同一要素に条件をまとめる機能はない。
 
 ## スキーマJSON
 
@@ -54,22 +56,22 @@ JSON Pointerは `/status` や `/author/name` の形式。キー中の `/` は `~
 
 | 属性 | 意味 |
 | --- | --- |
-| pointer | JSON Pointer。nested objectのキーも含む |
+| pointer | 配列を透過するキー経路。JSON Pointerのescapeを使う |
 | types | 観測した型のunion。型名の辞書順 |
-| present | そのキーがある文書数 |
+| present | その経路に値が1つ以上ある文書数。同一文書の複数要素は1件 |
 | missing | 全文書数からpresentを引いた数。frontmatterなしも含む |
-| null_count | 値そのものがnullの文書数。配列内のnullは数えない |
-| element_types | 配列要素の型のunion。空配列だけなら空リスト |
+| null_count | その経路の値にnullが1つ以上ある文書数。親配列のnull要素は加算しない |
+| element_types | その経路にある配列の直下要素の型のunion。object・arrayも含む。空配列だけなら空リスト |
 
 `builtin_fields` は `file:/name`、`file:/path` の順で、`selector`、`types`、`present`、`missing`、`null_count`、`element_types` を返す。両方ともtypesは `["string"]`、presentは全文書数、missingとnull_countは0、element_typesは空リスト。空の索引でも2つの定義を返し、presentも0となる。YAMLの `fields` へは混ぜない。
 
-rootと配列添字はfieldとして出さない。object自体はfieldとして数え、その下のキーも別fieldとして数える。型が文書ごとに異なっても拒否せずunionにする。schema出力にはキーが含まれるため、公開する前に内容を確認する。
+root・配列添字・匿名の配列要素はfieldとして出さない。object自体はfieldとして数え、その下のキーも別fieldとして数える。型が文書間や同一文書の要素間で異なっても拒否せずunionにする。空配列は親経路のpresentに含めるが、子経路の存在を作らない。例えば `items: [{name: a}, {name: null}, {name: null}, null]` では `/items/name` のpresentとnull_countはともに1、`/items` のnull_countは0となる。schema出力にはキーが含まれるため、公開する前に内容を確認する。
 
 ## YAMLの範囲と上限
 
 文書先頭（UTF-8 BOMは許可）の完全な `---` 行から開始し、完全な `---` または `...` 行で終了する。改行はLF/CRLFに対応する。前後の空白や余分なCRを含む行は区切りではない。閉じ区切り後の改行までを除いた位置から本文となる。開始区切りがない文書はmetadataなし・本文全体、開始があって閉じがない文書はエラー。
 
-空・コメントだけのheaderは空map。rootはmapのみ、nested mapとscalar配列を扱う。配列内のmap/配列、anchors、aliases、明示tags、YAML directives、mergeキー `<<` は `UnsupportedFrontmatter`。キーは復号後のscalar文字列として扱い、同じmapの重複キーや壊れた構文は `InvalidFrontmatter`。
+空・コメントだけのheaderは空map。rootはmapのみ、nested mapとscalar・map・配列を含む配列を扱う。anchors、aliases、明示tags、YAML directives、mergeキー `<<` は `UnsupportedFrontmatter`。キーは復号後のscalar文字列として扱い、同じmapの重複キーや壊れた構文は `InvalidFrontmatter`。
 
 | 制限 | 値と数え方 |
 | --- | --- |

@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "scope": "synthetic-correctness-no-performance-measurement",
+  "binary_sha256": "bfd632eb7be0909ac028967f9173260eedb58818b1f5ef59e7cf35ef659af8e4",
+  "runner_sha256": "b4ddf7dd8cba4113e10c2ef4f68771ab50065eb6232037d72b4fe15e1cdd21b9",
+  "binary_unchanged": true,
+  "inputs_unchanged": true,
+  "cli_calls": 674,
+  "dependency_sha256": {
+    "evaluate_frontmatter.py": "648ce8225145d21ab5eb852f15c82b4cbb1b3d0d68c690bd42208d8fc57e7da5",
+    "evaluate_frontmatter_diagnostics.py": "67d483ef824774f73cd260704a094fd461bfd9f0509176dfab179454cd436f50",
+    "benchmark_normalized.py": "69cdb921d5e761f23c6c04c36dda36e55819048cd8b736338179bfb59c2419a7"
+  },
+  "source_sha256": {
+    "build.zig": "bf675223a2d7504c0b767b054bf0481a94e7c0ef3da97c180d43d8e88c160ba6",
+    "mise.toml": "a484a15da1dad4c169dd36e54d32f575162ee45a6e106ee7a53751e53ee45c25",
+    "src/config.zig": "29c296ba16fd70edeeb1f7e39f8fd8ab884316ab0d0fa33d772ab2921f3770f2",
+    "src/frontmatter.zig": "c2204c659ab5d5bf61ca864b40d337a2a5124247d3acf382b02c043e28c43670",
+    "src/main.zig": "6a47594143203d3bf7685e84d95a5a9e723c33ddbe79332ce500f7605882fec3",
+    "src/normalize.zig": "29d289b8cc873bf12c31ce89f3fd4c265154f9aeeddf7a864f28955d237d06f2",
+    "src/paths.zig": "af4d12f3f588e3ba883af22ff5a9d0f3f09b8a231428e4296d7ab5bfca8e079e",
+    "src/profile.zig": "4d0488cf197f620c01000c4a5679f8c4dbd6a0f110607ce7be4414e43a656336",
+    "src/search.zig": "198c5c83a07bb7c4c4f6e73ef5b5b2d8072f197e6a4f1b5a24c73862447b166b",
+    "src/storage.zig": "c31f13fba5dd084e6689b8504ce005f93d6b3b7303d0cf38b13357c1fd6866d9",
+    "src/unicode_bridge.c": "54fed3531e7bcec0496f32c28909c94108b52d9d5aa341a4cd9bb8547d0b8012",
+    "src/yaml_bridge.c": "5dead3ae8851f30ce1bb432d8a389bb30b0c43e885b6249e72094d61245f6d1c"
+  },
+  "run_id": "frontmatter-objects-correctness-01",
+  "git_head": "d091bad4a6fbff7ade2ad6203f8e8b8f9b0b82dd",
+  "source_has_uncommitted_changes": true,
+  "python_version": "3.15.2",
+  "new_fixture_documents": 10,
+  "new_search_cases": 31,
+  "new_schema_fields": 14,
+  "scalar_regression_documents": 12,
+  "scalar_regression_cases": 41,
+  "invalid_document_classes": 20,
+  "resource_cases": 18,
+  "checks_by_suite": {
+    "objects": 189,
+    "scalar-regression": 249,
+    "invalid": 140,
+    "resource": 18
+  },
+  "all_checks_passed": true,
+  "successful_index_query_modes": [
+    "literal/literal",
+    "normalized/normalized",
+    "normalized/literal"
+  ],
+  "rejected_index_query_mode": "literal/normalized",
+  "raw_result_sha256": "7b91b1a385e0969fbb89ffd185dcd38e712a34832959217734c3f6e1346ac7c5",
+  "limitations": [
+    "合成文書だけを使用し、実KBの検索品質は未評価。",
+    "速度・RSS・索引サイズの計測と性能比較は未実施。",
+    "CLIはbyte spanを返さないため、原文の行番号・抜粋だけを独立照合。"
+  ]
+}

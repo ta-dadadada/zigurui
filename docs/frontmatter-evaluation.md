@@ -1,5 +1,7 @@
 # frontmatterの独立評価
 
+この記録は配列内object・多重配列への対応前の実装を対象とする。以下の拒否構文と件数は当時の結果であり、現行仕様は [frontmatter](frontmatter.md)、拡張後の検証は [配列対応の評価](frontmatter-objects-evaluation.md) を参照。過去の測定値は再計測していない。
+
 仕様は[frontmatterの集計と本文検索](frontmatter.md)、全数値は[匿名要約JSON](benchmark-results/frontmatter-evaluation-01.json)を参照。rawはローカルの `.local/benchmarks/frontmatter-evaluation-01/results.json` に保持した。公開要約に端末情報・絶対パスを含めていない。
 
 ## schema・型付き検索・境界
