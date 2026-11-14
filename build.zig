@@ -9,6 +9,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .strip = b.option(bool, "strip", "配布用にデバッグ情報とシンボルを除去する"),
     });
+    const options = b.addOptions();
+    options.addOption(bool, "profile", b.option(bool, "profile", "検索の処理時間と件数を標準エラーへ出力する") orelse false);
+    main_module.addOptions("build_options", options);
     main_module.link_libc = true;
     main_module.addIncludePath(b.path("vendor/utf8proc"));
     main_module.addCSourceFile(.{ .file = b.path("vendor/utf8proc/utf8proc.c"), .flags = &.{"-DUTF8PROC_STATIC"} });

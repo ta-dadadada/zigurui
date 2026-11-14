@@ -42,20 +42,30 @@ mise run build
 ./zig-out/bin/zigurui search --mode normalized .local/normalized.idx 'ガラス'
 ./zig-out/bin/zigurui scan --mode normalized /path/to/notes 'ガラス'
 
+# 複数の語句をすべて含む文書を検索する
+./zig-out/bin/zigurui search --mode normalized --all .local/normalized.idx 'ガラス' '断熱'
+
+# 保存済みfrontmatterのキーと型を調べ、本文をタグ条件で絞り込む
+./zig-out/bin/zigurui schema .local/normalized.idx
+./zig-out/bin/zigurui search --where file:/name '"notes.md"' .local/normalized.idx '検索'
+./zig-out/bin/zigurui search --mode normalized --frontmatter --where /tags '"住宅"' .local/normalized.idx 'ガラス'
+
 ./zig-out/bin/zigurui help
 ```
 
-検索結果は `絶対パス:行番号: 抜粋` の形式で、1文書につき検索表現で最初の一致を1件表示する。パス順で並び、一致がなければ何も表示せず正常終了する。抜粋はUTF-8の文字境界を保ち、一致開始の前32・開始から96コードポイント以内、改行までを表示する。normalizedでも行番号・抜粋は原文を使う。展開した文字の途中への一致は元の文字全体を指す。
+検索結果は `絶対パス:行番号: 抜粋` の形式で、1文書につき1件表示する。単語検索は検索表現で最初の一致、AND検索は各語句の最初の一致を原文へ戻した開始位置が最小の区間を使う。パス順で並び、一致がなければ何も表示せず正常終了する。抜粋はUTF-8の文字境界を保ち、一致開始の前32・開始から96コードポイント以内、改行までを表示する。normalizedでも行番号・抜粋は原文を使う。展開した文字の途中への一致は元の文字全体を指す。
 
-- UTF-8の `.md` / `.markdown` をプレーンテキストとして扱う。拡張子の大文字・小文字は区別しない。
-- 既定の `literal` は大文字・小文字、全角・半角、Unicodeの表記差を区別する。`normalized` はNFKC→default full case folding→NFKCで照合する。両モードとも複数語は空白を含む1つの連続文字列として扱う。
+- 既定ではUTF-8の `.md` / `.markdown` をプレーンテキストとして扱う。`--frontmatter` を明示すると先頭YAMLを解析して本文だけを検索する。拡張子の大文字・小文字は区別しない。
+- 既定の `literal` は大文字・小文字、全角・半角、Unicodeの表記差を区別する。`normalized` はNFKC→default full case folding→NFKCで照合する。両モードとも各引数の空白は連続文字列の一部として扱う。`--all` で複数引数を指定すると全語句のAND検索になる。
 - シンボリックリンクの文書やサブディレクトリは追跡しない。隠しファイル・隠しディレクトリは除外しない。
 - 空の検索語、不正なUTF-8、読み取りや保存の失敗は、標準エラーにエラー名を表示して終了コード1を返す。
 - normalizedでは非ASCIIを含む入力・各中間表現を4,194,304コードポイントまでに制限し、超過は `NormalizationTooLarge` になる。ASCIIだけの場合は由来表を省略し、この追加制限はない。
 - 1文書は64 MiB未満、索引の読み込みは1 GiB未満に制限する。対象の一部を黙って省略せず、読み取りに失敗した場合はコマンド全体を失敗させる。
 - 文書を読み取り専用で扱う。索引による文書の上書きと索引自身の取り込みを防ぐため、索引の保存先にはMarkdown以外の拡張子を指定する。保存先の親ディレクトリはあらかじめ作成する。
 
-normalized検索はnormalizedで構築した索引を必要とする。normalized索引のliteral検索は保存原文を全文走査する。`--mode` を省略すると、索引の種類にかかわらずliteralになる。処理・位置対応・対象外の表記差は [検索の正規化](docs/search-normalization.md) を参照。
+normalized検索はnormalizedで構築した索引を必要とする。normalized索引のliteral検索は保存原文を全文走査する。`--mode` を省略すると、索引の種類にかかわらずliteralになる。処理・位置対応・対象外の表記差は [検索の正規化](docs/search-normalization.md)、複数語句と代表位置の規則は [AND検索](docs/search-and.md) を参照。
+
+frontmatterの事前スキーマ定義は不要。`schema` は保存済み文書からキー・混在型・有無と、組み込みのファイル名・保存パスの型を表示する。`--where` は型付きの等値条件で、複数指定はAND、scalar配列は要素のどれかへの一致となる。`file:/name` と `file:/path` の条件だけならYAMLを解析せず原文全体を検索できる。対象構文・型・制限は [frontmatter](docs/frontmatter.md) を参照。
 
 索引には文書のパス・原文と転置インデックスを保存する。検索では保存済みの転置インデックスを読み込み、N-gramを再構築しない。原文の変更・追加・削除は、同じ `index` コマンドを再実行して全体を再構築すると反映される。再構築するまでは保存時点の本文・抜粋を表示する。
 

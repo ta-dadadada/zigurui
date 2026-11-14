@@ -134,3 +134,11 @@ python3 scripts/benchmark_report.py \
 生成文書と生の測定値はGit管理対象外の `.local/` に配置する。実文書は読み込まない。公開用の `docs/benchmark-results/` には、allowlistで選んだ再現条件と集計結果だけをGitで管理する。OS・CPU・メモリ・ツール版は実験条件として残し、ユーザー名を含む絶対パス・ホスト名・生の失敗診断・未知metadataは公開しない。生成物への参照は `$RUN` 基準とし、rawはローカルにそのまま保持する。
 
 `scripts/benchmark_report.py` はrawを変更せず要約を生成する。別途取得したハードウェア条件は `--hardware-metadata <JSON>` で指定でき、`cpu_model` / `memory_bytes` / `logical_cpu_count` だけを由来付きの補足として残す。要約JSONには生のサンプルを含めないため、ローカルのraw結果を削除した後は、別のパーセンタイルや外れ値除外で再集計できない。固定seedと記録したスクリプトからコーパスは再生成できるが、過去と同じ実行時間は再現できない。
+
+## 正規化検索の内訳計測
+
+`zig build -Doptimize=ReleaseFast -Dprofile=true --prefix .local/benchmarks/<専用出力先>` で計測専用バイナリを作る。既定のビルドは時計・集計を実行しない。計測版は検索結果を変えず、標準エラーへschema_version=1のJSONを1行出す。本文・検索語・パスは含めない。
+
+`timings_ns` は切り替え式の非重複区間で、read、checksum、decode、query_prepare、candidates、span_transform、index_of、original_span、output、cleanup、otherを記録する。span_transformは原文位置対応付きの本文変換全体、query_prepareは検索語の変換を含む。total_nsは区間合計と別枠の総時間であり、合計へ再加算しない。cleanupは明示的な解放だけを含み、プロセス終了時のarena解放とJSON出力自体は測定しない。計測器の呼び出し負荷を含むため、速度比較は計測なし版でも行う。
+
+`counts` は最短posting件数、全gramを通過した候補数、本文検証数、一致数、本文変換回数と入力UTF-8バイト数、位置復元で訪問したpoint数を記録する。全文走査ではpostingに関する2件数は0、本文検証数が走査文書数となる。位置復元のpoint数は終了判定で訪問したpointも含み、ASCIIの恒等対応は0となる。単一スレッドCLI用の集計であり、並列検索には使用しない。

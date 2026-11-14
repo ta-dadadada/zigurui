@@ -1,6 +1,7 @@
 //! 検索用のNFKC→default full case folding→NFKCと、原文バイト区間の対応を担う。
 //! Unicodeデータ・分解・合成対は固定版utf8procを使い、順序制御と由来の追跡を行う。
 const std = @import("std");
+const profile = @import("profile.zig");
 extern fn zigurui_decompose(cp: i32, out: ?[*]i32, capacity: isize, fold: bool) isize;
 extern fn zigurui_combining_class(cp: i32) u8;
 extern fn zigurui_compose_pair(first: i32, second: i32) i32;
@@ -37,6 +38,7 @@ pub const Result = struct {
         var span: Span = .{ .start = std.math.maxInt(usize), .end = 0 };
         var offset: usize = 0;
         for (self.points) |point| {
+            profile.add(.span_points_visited, 1);
             const next = offset + (std.unicode.utf8CodepointSequenceLength(point.cp) catch unreachable);
             if (offset >= end) break;
             if (next > start) {

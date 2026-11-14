@@ -2,6 +2,7 @@
 //! 全文走査を独立した正解の基準として提供し、索引検索と同じ結果契約を持つ。
 
 const std = @import("std");
+const profile = @import("profile.zig");
 const Allocator = std.mem.Allocator;
 const normalize = @import("normalize.zig");
 
@@ -38,6 +39,8 @@ pub const Index = struct {
     /// 二分探索の前提としてgramのバイト辞書順に並び、重複しない。
     postings: []const Posting,
     mode: Mode = .literal,
+    /// 本文投影用の任意mask。documentsと同じ長さを呼び出し中借用する。保存しない。
+    eligible: ?[]const bool = null,
     /// 構築時はgramの複製を所有し、復元時は保存バッファを借用する。
     owns_grams: bool = false,
 
@@ -63,7 +66,11 @@ pub const Index = struct {
         for (documents, 0..) |doc, doc_id| {
             if (!std.unicode.utf8ValidateSlice(doc.text)) return error.InvalidUtf8;
             var normalized: ?normalize.Result = if (mode == .normalized) try normalize.transform(allocator, doc.text) else null;
-            defer if (normalized) |*result| result.deinit();
+            defer if (normalized) |*result| {
+                const before_cleanup = profile.enter(.cleanup);
+                defer profile.leave(before_cleanup);
+                result.deinit();
+            };
             var grams = Grams.init(if (normalized) |result| result.text else doc.text);
             while (grams.next()) |gram| {
                 const entry = try map.getOrPut(gram);
@@ -118,34 +125,69 @@ pub const Index = struct {
     /// 正規化索引のliteral検索は保存原文を走査する。逆方向は再構築が必要。
     /// normalizedは正規化本文で最初の一致を覆う原文区間を返す。
     pub fn searchMode(self: *const Index, allocator: Allocator, query: []const u8, mode: Mode) ![]Match {
+        const previous = profile.enter(.query_prepare);
+        defer profile.leave(previous);
         try validateQuery(query);
         if (mode == .normalized and self.mode != .normalized) return error.IndexModeMismatch;
         if (mode == .literal and self.mode == .normalized) return self.scanMode(allocator, query, mode);
         var normalized: ?normalize.Result = if (mode == .normalized) try normalize.transform(allocator, query) else null;
-        defer if (normalized) |*result| result.deinit();
+        defer if (normalized) |*result| {
+            const before_cleanup = profile.enter(.cleanup);
+            defer profile.leave(before_cleanup);
+            result.deinit();
+        };
         const needle = if (normalized) |result| result.text else query;
         if (needle.len == 0) return error.EmptyQuery;
-        var grams = Grams.init(needle);
+        var offsets: [1]usize = undefined;
+        return self.searchPrepared(allocator, &.{needle}, mode, &offsets);
+    }
+
+    /// 全termsを同一文書で満たすAND検索。空配列・空語はEmptyQuery。
+    /// 各語の最初の一致を原文へ戻し、開始最小の区間を返す。同位置は入力順。
+    /// termsは呼び出し中だけ借用し、結果配列は呼び出し側がallocator.freeする。
+    pub fn searchAll(self: *const Index, allocator: Allocator, terms: []const []const u8, mode: Mode) ![]Match {
+        const previous = profile.enter(.query_prepare);
+        defer profile.leave(previous);
+        var prepared = try PreparedTerms.init(allocator, terms, mode);
+        defer prepared.deinit(allocator);
+        if (mode == .normalized and self.mode != .normalized) return error.IndexModeMismatch;
+        const offsets = try allocator.alloc(usize, prepared.needles.items.len);
+        defer allocator.free(offsets);
+        if (mode == .literal and self.mode == .normalized)
+            return self.scanPrepared(allocator, prepared.needles.items, mode, offsets);
+        return self.searchPrepared(allocator, prepared.needles.items, mode, offsets);
+    }
+
+    fn searchPrepared(self: *const Index, allocator: Allocator, needles: []const []const u8, mode: Mode, offsets: []usize) ![]Match {
+        const previous = profile.enter(.candidates);
+        defer profile.leave(previous);
         var candidates: ?[]const usize = null;
-        while (grams.next()) |gram| {
-            const ids = self.lookup(gram) orelse return allocator.alloc(Match, 0);
-            if (candidates == null or ids.len < candidates.?.len) candidates = ids;
+        for (needles) |needle| {
+            var grams = Grams.init(needle);
+            while (grams.next()) |gram| {
+                const ids = self.lookup(gram) orelse return allocator.alloc(Match, 0);
+                if (candidates == null or ids.len < candidates.?.len) candidates = ids;
+            }
         }
-        // 短語の分岐は入力ではなく正規化後のコードポイント数で決める。
-        const ids = candidates orelse return self.scanPrepared(allocator, needle, mode);
+        // 全語が正規化後1コードポイントの場合だけ全文走査する。
+        const ids = candidates orelse return self.scanPrepared(allocator, needles, mode, offsets);
+        profile.add(.shortest_posting_count, ids.len);
         var matches: std.ArrayList(Match) = .empty;
         errdefer matches.deinit(allocator);
         for (ids) |doc_id| {
-            var required = Grams.init(needle);
-            var all_present = true;
-            while (required.next()) |gram| {
-                if (!containsId(self.lookup(gram).?, doc_id)) {
-                    all_present = false;
-                    break;
+            const all_present = blk: {
+                for (needles) |needle| {
+                    var required = Grams.init(needle);
+                    while (required.next()) |gram| {
+                        if (!containsId(self.lookup(gram).?, doc_id)) break :blk false;
+                    }
                 }
-            }
+                break :blk true;
+            };
             if (!all_present) continue;
-            if (try matchDocument(allocator, self.documents[doc_id].text, needle, mode)) |span|
+            profile.add(.candidate_count, 1);
+            if (self.eligible) |eligible| if (!eligible[doc_id]) continue;
+            if (try matchDocument(allocator, self.documents[doc_id].text, needles, mode, offsets)) |span|
                 try matches.append(allocator, .{ .doc_id = doc_id, .offset = span.start, .end = span.end });
         }
         return matches.toOwnedSlice(allocator);
@@ -158,19 +200,40 @@ pub const Index = struct {
 
     /// 全文走査も同じ変換と位置復元を使う。self.modeやpostingsは参照しない。
     pub fn scanMode(self: *const Index, allocator: Allocator, query: []const u8, mode: Mode) ![]Match {
+        const previous = profile.enter(.query_prepare);
+        defer profile.leave(previous);
         try validateQuery(query);
         var normalized: ?normalize.Result = if (mode == .normalized) try normalize.transform(allocator, query) else null;
-        defer if (normalized) |*result| result.deinit();
+        defer if (normalized) |*result| {
+            const before_cleanup = profile.enter(.cleanup);
+            defer profile.leave(before_cleanup);
+            result.deinit();
+        };
         const needle = if (normalized) |result| result.text else query;
         if (needle.len == 0) return error.EmptyQuery;
-        return self.scanPrepared(allocator, needle, mode);
+        var offsets: [1]usize = undefined;
+        return self.scanPrepared(allocator, &.{needle}, mode, &offsets);
     }
 
-    fn scanPrepared(self: *const Index, allocator: Allocator, needle: []const u8, mode: Mode) ![]Match {
+    /// 索引を使わずAND条件を走査する。条件と結果の所有権はsearchAllと同じ。
+    pub fn scanAll(self: *const Index, allocator: Allocator, terms: []const []const u8, mode: Mode) ![]Match {
+        const previous = profile.enter(.query_prepare);
+        defer profile.leave(previous);
+        var prepared = try PreparedTerms.init(allocator, terms, mode);
+        defer prepared.deinit(allocator);
+        const offsets = try allocator.alloc(usize, prepared.needles.items.len);
+        defer allocator.free(offsets);
+        return self.scanPrepared(allocator, prepared.needles.items, mode, offsets);
+    }
+
+    fn scanPrepared(self: *const Index, allocator: Allocator, needles: []const []const u8, mode: Mode, offsets: []usize) ![]Match {
+        const previous = profile.enter(.other);
+        defer profile.leave(previous);
         var matches: std.ArrayList(Match) = .empty;
         errdefer matches.deinit(allocator);
         for (self.documents, 0..) |doc, doc_id| {
-            if (try matchDocument(allocator, doc.text, needle, mode)) |span|
+            if (self.eligible) |eligible| if (!eligible[doc_id]) continue;
+            if (try matchDocument(allocator, doc.text, needles, mode, offsets)) |span|
                 try matches.append(allocator, .{ .doc_id = doc_id, .offset = span.start, .end = span.end });
         }
         return matches.toOwnedSlice(allocator);
@@ -191,15 +254,73 @@ pub const Index = struct {
     }
 };
 
-fn matchDocument(allocator: Allocator, text: []const u8, needle: []const u8, mode: Mode) !?normalize.Span {
-    if (mode == .literal) {
-        const offset = std.mem.indexOf(u8, text, needle) orelse return null;
-        return .{ .start = offset, .end = offset + needle.len };
+// literalのneedleは入力を借用し、normalizedのneedleはownedのtextを借用する。
+const PreparedTerms = struct {
+    needles: std.ArrayList([]const u8) = .empty,
+    owned: std.ArrayList(normalize.Result) = .empty,
+
+    fn init(allocator: Allocator, terms: []const []const u8, mode: Mode) !PreparedTerms {
+        if (terms.len == 0) return error.EmptyQuery;
+        var result: PreparedTerms = .{};
+        errdefer result.deinit(allocator);
+        for (terms) |term| {
+            try validateQuery(term);
+            var normalized: ?normalize.Result = if (mode == .normalized) try normalize.transform(allocator, term) else null;
+            defer if (normalized) |*value| value.deinit();
+            const needle = if (normalized) |value| value.text else term;
+            if (needle.len == 0) return error.EmptyQuery;
+            const duplicate = for (result.needles.items) |previous| {
+                if (std.mem.eql(u8, previous, needle)) break true;
+            } else false;
+            if (duplicate) continue;
+            if (normalized) |value| {
+                try result.owned.append(allocator, value);
+                normalized = null;
+            }
+            try result.needles.append(allocator, needle);
+        }
+        return result;
     }
-    var result = try normalize.transform(allocator, text);
-    defer result.deinit();
-    const offset = std.mem.indexOf(u8, result.text, needle) orelse return null;
-    return result.originalSpan(offset, offset + needle.len);
+
+    fn deinit(self: *PreparedTerms, allocator: Allocator) void {
+        const previous = profile.enter(.cleanup);
+        defer profile.leave(previous);
+        for (self.owned.items) |*value| value.deinit();
+        self.owned.deinit(allocator);
+        self.needles.deinit(allocator);
+    }
+};
+
+fn matchDocument(allocator: Allocator, text: []const u8, needles: []const []const u8, mode: Mode, offsets: []usize) !?normalize.Span {
+    profile.add(.documents_verified, 1);
+    const previous = profile.enter(.index_of);
+    defer profile.leave(previous);
+    var normalized: ?normalize.Result = null;
+    if (mode == .normalized) {
+        _ = profile.enter(.span_transform);
+        profile.add(.normalized_document_count, 1);
+        profile.add(.normalized_input_bytes, text.len);
+        normalized = try normalize.transform(allocator, text);
+    }
+    defer if (normalized) |*result| {
+        const before_cleanup = profile.enter(.cleanup);
+        defer profile.leave(before_cleanup);
+        result.deinit();
+    };
+    const haystack = if (normalized) |result| result.text else text;
+    _ = profile.enter(.index_of);
+    for (needles, offsets) |needle, *offset| {
+        offset.* = std.mem.indexOf(u8, haystack, needle) orelse return null;
+    }
+    profile.add(.hit_count, 1);
+    _ = profile.enter(.original_span);
+    var chosen: ?normalize.Span = null;
+    for (needles, offsets) |needle, offset| {
+        const span = if (normalized) |result| result.originalSpan(offset, offset + needle.len) else normalize.Span{ .start = offset, .end = offset + needle.len };
+        // 同開始位置では最初の入力語を維持する。
+        if (chosen == null or span.start < chosen.?.start) chosen = span;
+    }
+    return chosen;
 }
 
 fn postingLessThan(_: void, a: Posting, b: Posting) bool {
@@ -392,4 +513,96 @@ fn normalizedAllocationScenario(allocator: Allocator) !void {
 
 test "正規化gramと候補変換は確保失敗でもリークしない" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, normalizedAllocationScenario, .{});
+}
+
+const and_fixture = [_]Document{
+    .{ .path = "a.md", .text = "前㌔後 ｶﾞ Straße" },
+    .{ .path = "b.md", .text = "a\u{315}\u{300} xyz" },
+    .{ .path = "c.md", .text = "ab a b a　b --all" },
+    .{ .path = "d.md", .text = "後 ガ キロ" },
+    .{ .path = "e.md", .text = "abxxbc" },
+};
+
+test "ANDは独立した原文span期待値と索引とscanが一致する" {
+    const allocator = std.testing.allocator;
+    var index = try Index.initMode(allocator, &and_fixture, .normalized);
+    defer index.deinit();
+    const cases = [_]struct { terms: []const []const u8, expected: []const Match }{
+        .{ .terms = &.{ "ガ", "ロ" }, .expected = &.{ .{ .doc_id = 0, .offset = 3, .end = 6 }, .{ .doc_id = 3, .offset = 4, .end = 7 } } },
+        .{ .terms = &.{ "ｶﾞ", "STRASSE", "㌔" }, .expected = &.{.{ .doc_id = 0, .offset = 3, .end = 6 }} },
+        .{ .terms = &.{ "STRASSE", "strasse", "Straße" }, .expected = &.{.{ .doc_id = 0, .offset = 17, .end = 24 }} },
+        .{ .terms = &.{ "\u{315}", "à" }, .expected = &.{.{ .doc_id = 1, .offset = 0, .end = 5 }} },
+        .{ .terms = &.{ "ab", "a" }, .expected = &.{ .{ .doc_id = 2, .offset = 0, .end = 2 }, .{ .doc_id = 4, .offset = 0, .end = 2 } } },
+        .{ .terms = &.{ "a", "ab" }, .expected = &.{ .{ .doc_id = 2, .offset = 0, .end = 1 }, .{ .doc_id = 4, .offset = 0, .end = 1 } } },
+        .{ .terms = &.{ "a b", "--all" }, .expected = &.{.{ .doc_id = 2, .offset = 3, .end = 6 }} },
+        .{ .terms = &.{ "a　b", "a b" }, .expected = &.{.{ .doc_id = 2, .offset = 3, .end = 6 }} },
+        .{ .terms = &.{ "abc", "ab" }, .expected = &.{} },
+        .{ .terms = &.{ "後", "不存在" }, .expected = &.{} },
+    };
+    for (cases) |case| {
+        const actual = try index.searchAll(allocator, case.terms, .normalized);
+        defer allocator.free(actual);
+        const scanned = try index.scanAll(allocator, case.terms, .normalized);
+        defer allocator.free(scanned);
+        try std.testing.expectEqualSlices(Match, case.expected, actual);
+        try std.testing.expectEqualSlices(Match, case.expected, scanned);
+    }
+}
+
+test "literal ANDは空白を分割せずmodeと単語検索の契約を維持する" {
+    const allocator = std.testing.allocator;
+    var literal = try Index.init(allocator, &and_fixture);
+    defer literal.deinit();
+    var normalized = try Index.initMode(allocator, &and_fixture, .normalized);
+    defer normalized.deinit();
+    const terms = &.{ "a　b", "--all" };
+    const expected = &.{Match{ .doc_id = 2, .offset = 7, .end = 12 }};
+    const actual = try literal.searchAll(allocator, terms, .literal);
+    defer allocator.free(actual);
+    const fallback = try normalized.searchAll(allocator, terms, .literal);
+    defer allocator.free(fallback);
+    const scanned = try literal.scanAll(allocator, terms, .literal);
+    defer allocator.free(scanned);
+    try std.testing.expectEqualSlices(Match, expected, actual);
+    try std.testing.expectEqualSlices(Match, expected, fallback);
+    try std.testing.expectEqualSlices(Match, expected, scanned);
+    try std.testing.expectError(error.IndexModeMismatch, literal.searchAll(allocator, &.{"ab"}, .normalized));
+    for ([_][]const u8{ "ロ", "ｶﾞ", "ab", "不存在" }) |query| {
+        const old = try normalized.searchMode(allocator, query, .normalized);
+        defer allocator.free(old);
+        const all = try normalized.searchAll(allocator, &.{ query, query }, .normalized);
+        defer allocator.free(all);
+        try std.testing.expectEqualSlices(Match, old, all);
+    }
+}
+
+test "ANDはposting不存在でも後続の空語と不正UTF8を拒否する" {
+    const allocator = std.testing.allocator;
+    var index = try Index.initMode(allocator, &and_fixture, .normalized);
+    defer index.deinit();
+    for ([_]Mode{ .literal, .normalized }) |mode| {
+        try std.testing.expectError(error.EmptyQuery, index.searchAll(allocator, &.{}, mode));
+        try std.testing.expectError(error.EmptyQuery, index.scanAll(allocator, &.{}, mode));
+        try std.testing.expectError(error.EmptyQuery, index.searchAll(allocator, &.{ "不存在", "" }, mode));
+        try std.testing.expectError(error.InvalidUtf8, index.searchAll(allocator, &.{ "不存在", "\xff" }, mode));
+        try std.testing.expectError(error.EmptyQuery, index.scanAll(allocator, &.{ "不存在", "" }, mode));
+        try std.testing.expectError(error.InvalidUtf8, index.scanAll(allocator, &.{ "不存在", "\xff" }, mode));
+    }
+}
+
+fn andAllocationScenario(allocator: Allocator) !void {
+    var index = try Index.initMode(allocator, &and_fixture, .normalized);
+    defer index.deinit();
+    const found = try index.searchAll(allocator, &.{ "ｶﾞ", "ガ", "㌔" }, .normalized);
+    defer allocator.free(found);
+    const scanned = try index.scanAll(allocator, &.{ "ロ", "ガ" }, .normalized);
+    defer allocator.free(scanned);
+    const absent = try index.searchAll(allocator, &.{ "abc", "ab" }, .normalized);
+    defer allocator.free(absent);
+    const literal = try index.searchAll(allocator, &.{ "a", "--all" }, .literal);
+    defer allocator.free(literal);
+}
+
+test "ANDの重複排除・候補・全文走査は確保失敗でも解放する" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, andAllocationScenario, .{});
 }
