@@ -13,6 +13,11 @@ pub fn build(b: *std.Build) void {
     main_module.addIncludePath(b.path("vendor/utf8proc"));
     main_module.addCSourceFile(.{ .file = b.path("vendor/utf8proc/utf8proc.c"), .flags = &.{"-DUTF8PROC_STATIC"} });
     main_module.addCSourceFile(.{ .file = b.path("src/unicode_bridge.c"), .flags = &.{"-DUTF8PROC_STATIC"} });
+    main_module.addIncludePath(b.path("vendor/libyaml/include"));
+    main_module.addCSourceFiles(.{
+        .files = &.{ "vendor/libyaml/src/api.c", "vendor/libyaml/src/parser.c", "vendor/libyaml/src/reader.c", "vendor/libyaml/src/scanner.c", "src/yaml_bridge.c" },
+        .flags = &.{ "-DYAML_DECLARE_STATIC", "-DYAML_VERSION_MAJOR=0", "-DYAML_VERSION_MINOR=2", "-DYAML_VERSION_PATCH=5", "-DYAML_VERSION_STRING=\"0.2.5\"" },
+    });
     main_module.addAnonymousImport("NormalizationTest", .{ .root_source_file = b.path("testdata/unicode/NormalizationTest.txt") });
     main_module.addAnonymousImport("CaseFoldingTest", .{ .root_source_file = b.path("testdata/unicode/CaseFolding.txt") });
 

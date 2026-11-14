@@ -16,7 +16,7 @@ mise exec -- zig version
 mise run check
 ```
 
-開発ツールのバージョンは `mise.toml` の `[tools]` を正本として固定している。固定版utf8procを同梱ソースから静的に組み込む。追加のUnicodeライブラリを実行環境へインストールする必要はない。版・ライセンス・更新手順は [Unicode依存](vendor/utf8proc/SOURCE.md) を参照。
+開発ツールのバージョンは `mise.toml` の `[tools]` を正本として固定している。固定版utf8procとlibyamlを同梱ソースから静的に組み込む。実行環境への追加ライブラリのインストールは不要。版・ライセンス・更新手順は [Unicode依存](vendor/utf8proc/SOURCE.md) と [YAML依存](vendor/libyaml/SOURCE.md) を参照。
 シェルにmiseを有効化していなくても、`mise run` または `mise exec --` 経由で利用できる。
 
 Codexの役割分担、linked worktreeのセットアップ、キャッシュの分離、測定時の協調は [開発環境の運用](docs/development.md) を参照する。
