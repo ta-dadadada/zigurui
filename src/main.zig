@@ -6,6 +6,7 @@ const profile = @import("profile.zig");
 const search = @import("search.zig");
 const storage = @import("storage.zig");
 const incremental = @import("incremental.zig");
+const relevance = @import("relevance.zig");
 const ranking = @import("ranking.zig");
 const frontmatter = @import("frontmatter.zig");
 const Paths = @import("paths.zig").Paths;
@@ -25,7 +26,7 @@ const help =
     \\  zigurui scan [--mode literal|normalized] --all <directory> <term>...
     \\  zigurui schema <index-file>
     \\  search/scanの入力前: [--frontmatter] [--where <selector> <JSON-scalar>]...
-    \\  search/scanの入力前: [--rank path|heading]（既定path、見出し一致を優先）
+    \\  search/scanの入力前: [--rank path|heading|relevance]（既定path、見出し一致を優先）
     \\  zigurui help
     \\  zigurui paths
     \\  zigurui version / --version
@@ -39,6 +40,7 @@ const help =
     \\searchは保存時点の文書を検索する。変更後はindexを再実行する。
     \\--incrementalは同じ文書ディレクトリとmodeの索引を差分更新する。通常indexは全再構築する。
     \\索引ファイルにはMarkdown以外の拡張子を使用する。
+    \\  --explain: relevance順位の説明JSON（通常表示とは別契約）
     \\設定はXDG_CONFIG_HOME/zigurui/config.jsonから読み、CLI指定を優先する。
     \\設定なしの既定はliteralとXDG_DATA_HOME/zigurui/default.idx（pathsで確認）。
     \\--allとschemaでは索引パスを明示する。
@@ -101,6 +103,12 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
     }
     var arguments = parsed.?;
     if (!arguments.mode_specified and !std.mem.eql(u8, args[1], "schema")) arguments.mode = config.mode;
+    const searching = std.mem.eql(u8, args[1], "search") or std.mem.eql(u8, args[1], "scan");
+    if (searching and !arguments.rank_specified) arguments.rank = config.rank;
+    arguments.relevance_settings = config.relevance;
+    if (arguments.explain and arguments.rank != .relevance) return error.InvalidArguments;
+    var scores: ?[]relevance.Result = null;
+    defer if (scores) |value| relevance.deinit(init.gpa, value);
     const default_index = if (arguments.default_index) config.index_path orelse try Paths.defaultIndex(allocator, init.environ_map) else null;
     if (default_index) |path| {
         if (std.mem.eql(u8, args[1], "index")) arguments.value = path else arguments.input = path;
@@ -181,7 +189,7 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
             succeeded = true;
             return;
         }
-        const matches = findMatches(init.gpa, &stored.index, &arguments, filters, false, &diagnostic) catch |err| {
+        const matches = findDetailed(init.gpa, &stored.index, &arguments, filters, false, &diagnostic, &scores) catch |err| {
             reportDiagnostic(init.io, stored.index.documents, diagnostic, reported);
             return err;
         };
@@ -190,12 +198,12 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
             defer profile.leave(previous);
             init.gpa.free(matches);
         }
-        try printMatches(allocator, init.io, stored.index.documents, matches);
+        if (arguments.explain) try printExplanation(allocator, init.io, scores.?, arguments) else try printMatches(allocator, init.io, stored.index.documents, matches);
     } else if (std.mem.eql(u8, args[1], "scan")) {
         const documents = try loadCorpus(allocator, init.io, input);
         // 正解の基準となる全文走査では索引を構築しない。
         const index: search.Index = .{ .allocator = allocator, .documents = documents, .postings = &.{} };
-        const matches = findMatches(init.gpa, &index, &arguments, filters, true, &diagnostic) catch |err| {
+        const matches = findDetailed(init.gpa, &index, &arguments, filters, true, &diagnostic, &scores) catch |err| {
             reportDiagnostic(init.io, documents, diagnostic, reported);
             return err;
         };
@@ -204,7 +212,7 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
             defer profile.leave(previous);
             init.gpa.free(matches);
         }
-        try printMatches(allocator, init.io, documents, matches);
+        if (arguments.explain) try printExplanation(allocator, init.io, scores.?, arguments) else try printMatches(allocator, init.io, documents, matches);
     } else return error.InvalidArguments;
     succeeded = true;
 }
@@ -220,6 +228,8 @@ const Arguments = struct {
     all: bool = false,
     rank: ranking.Order = .path,
     rank_specified: bool = false,
+    explain: bool = false,
+    relevance_settings: relevance.Settings = .{},
     terms: []const []const u8 = &.{},
     frontmatter: bool = false,
     where: [frontmatter.max_filters]Where = undefined,
@@ -234,7 +244,7 @@ fn parseArguments(args: []const []const u8) !Arguments {
         return .{ .mode = .literal, .input = args[2] };
     }
     // 従来の入力名--modeは維持し、新しい明示オプションだけを予約する。
-    if (args.len == 4 and !std.mem.eql(u8, args[2], "--all") and !std.mem.eql(u8, args[2], "--frontmatter") and !std.mem.eql(u8, args[2], "--where") and !std.mem.eql(u8, args[2], "--incremental") and !std.mem.eql(u8, args[2], "--rank"))
+    if (args.len == 4 and !std.mem.eql(u8, args[2], "--all") and !std.mem.eql(u8, args[2], "--frontmatter") and !std.mem.eql(u8, args[2], "--where") and !std.mem.eql(u8, args[2], "--incremental") and !std.mem.eql(u8, args[2], "--rank") and !std.mem.eql(u8, args[2], "--explain"))
         return .{ .mode = .literal, .input = args[2], .value = args[3], .terms = args[3..] };
     var position: usize = 2;
     var parsed: Arguments = .{ .mode = .literal, .input = "" };
@@ -258,6 +268,10 @@ fn parseArguments(args: []const []const u8) !Arguments {
             if (parsed.frontmatter) return error.InvalidArguments;
             parsed.frontmatter = true;
             position += 1;
+        } else if (std.mem.eql(u8, option, "--explain")) {
+            if (parsed.explain) return error.InvalidArguments;
+            parsed.explain = true;
+            position += 1;
         } else if (std.mem.eql(u8, option, "--rank")) {
             if (parsed.rank_specified or args.len <= position + 1) return error.InvalidArguments;
             parsed.rank = std.meta.stringToEnum(ranking.Order, args[position + 1]) orelse return error.InvalidArguments;
@@ -271,7 +285,7 @@ fn parseArguments(args: []const []const u8) !Arguments {
             position += 3;
         } else break;
     }
-    if ((parsed.all or parsed.frontmatter or parsed.where_count != 0 or parsed.rank_specified) and !std.mem.eql(u8, args[1], "search") and !std.mem.eql(u8, args[1], "scan")) return error.InvalidArguments;
+    if ((parsed.all or parsed.frontmatter or parsed.where_count != 0 or parsed.rank_specified or parsed.explain) and !std.mem.eql(u8, args[1], "search") and !std.mem.eql(u8, args[1], "scan")) return error.InvalidArguments;
     for (parsed.where[0..parsed.where_count]) |condition| {
         if (try frontmatter.selectorKind(condition.pointer) == .metadata and !parsed.frontmatter) return error.InvalidArguments;
     }
@@ -306,18 +320,28 @@ fn prepareFilters(allocator: std.mem.Allocator, parsed: *const Arguments) ![]fro
 }
 
 fn findMatches(allocator: std.mem.Allocator, index: *const search.Index, parsed: *const Arguments, filters: []const frontmatter.Filter, scan: bool, diagnostic: ?*?frontmatter.Diagnostic) ![]search.Match {
+    return findDetailed(allocator, index, parsed, filters, scan, diagnostic, null);
+}
+
+fn findDetailed(allocator: std.mem.Allocator, index: *const search.Index, parsed: *const Arguments, filters: []const frontmatter.Filter, scan: bool, diagnostic: ?*?frontmatter.Diagnostic, scores: ?*?[]relevance.Result) ![]search.Match {
     if (diagnostic) |out| out.* = null;
     var projection: ?frontmatter.Projection = if (parsed.frontmatter or filters.len != 0) try frontmatter.Projection.init(allocator, index.documents, filters, parsed.frontmatter, diagnostic) else null;
     defer if (projection) |*value| value.deinit(allocator);
     // 投影は原文とpostingsを借用するだけで、Index.deinitは呼ばない。
     const projected: search.Index = if (projection) |value| .{ .allocator = allocator, .documents = value.documents, .postings = index.postings, .mode = index.mode, .eligible = value.eligible } else index.*;
-    const matches = if (scan)
+    var prepared: ?search.PreparedTerms = if (parsed.rank == .relevance) try search.PreparedTerms.init(allocator, parsed.terms, parsed.mode) else null;
+    defer if (prepared) |*ready| ready.deinit(allocator);
+    const matches = if (prepared) |*ready| try projected.findReady(allocator, ready, parsed.mode, scan) else if (scan)
         (if (parsed.all) try projected.scanAll(allocator, parsed.terms, parsed.mode) else try projected.scanMode(allocator, parsed.value, parsed.mode))
     else
         (if (parsed.all) try projected.searchAll(allocator, parsed.terms, parsed.mode) else try projected.searchMode(allocator, parsed.value, parsed.mode));
     errdefer allocator.free(matches);
     if (projection) |value| value.restore(matches);
     if (parsed.rank == .heading) try ranking.sort(allocator, index.documents, matches, parsed.terms, parsed.mode);
+    if (prepared) |ready| {
+        const results = try relevance.rank(allocator, index.documents, matches, ready.needles.items, parsed.mode, parsed.relevance_settings, diagnostic);
+        if (scores) |out| out.* = results else relevance.deinit(allocator, results);
+    }
     return matches;
 }
 
@@ -367,6 +391,23 @@ fn loadCorpus(allocator: std.mem.Allocator, io: std.Io, root_path: []const u8) !
         }
     }.lessThan);
     return documents.toOwnedSlice(allocator);
+}
+
+fn printExplanation(a: std.mem.Allocator, io: std.Io, results: []const relevance.Result, args: Arguments) !void {
+    const phase = profile.enter(.output);
+    defer profile.leave(phase);
+    // 語句自体とfield値を出さず、採点時の設定と結果をそのまま直列化する。
+    const json = try std.json.Stringify.valueAlloc(a, .{
+        .schema_version = 1,
+        .algorithm = relevance.algorithm,
+        .mode = @tagName(args.mode),
+        .settings = args.relevance_settings,
+        .tie_break = "total_desc,path_utf8_asc",
+        .distance_unit = "search_representation_unicode_codepoints",
+        .results = results,
+    }, .{});
+    try std.Io.File.stdout().writeStreamingAll(io, json);
+    try std.Io.File.stdout().writeStreamingAll(io, "\n");
 }
 
 fn printMatches(allocator: std.mem.Allocator, io: std.Io, documents: []const search.Document, matches: []const search.Match) !void {

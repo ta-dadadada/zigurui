@@ -158,6 +158,16 @@ pub const Index = struct {
         return self.searchPrepared(allocator, prepared.needles.items, mode, offsets);
     }
 
+    /// preparedを借用し、通常検索と同じ一致位置を返す。結果配列は呼び出し元が解放する。
+    pub fn findReady(self: *const Index, allocator: Allocator, prepared: *const PreparedTerms, mode: Mode, use_scan: bool) ![]Match {
+        if (!use_scan and mode == .normalized and self.mode != .normalized) return error.IndexModeMismatch;
+        const offsets = try allocator.alloc(usize, prepared.needles.items.len);
+        defer allocator.free(offsets);
+        if (use_scan or (mode == .literal and self.mode == .normalized))
+            return self.scanPrepared(allocator, prepared.needles.items, mode, offsets);
+        return self.searchPrepared(allocator, prepared.needles.items, mode, offsets);
+    }
+
     fn searchPrepared(self: *const Index, allocator: Allocator, needles: []const []const u8, mode: Mode, offsets: []usize) ![]Match {
         const previous = profile.enter(.candidates);
         defer profile.leave(previous);
@@ -255,11 +265,14 @@ pub const Index = struct {
 };
 
 // literalのneedleは入力を借用し、normalizedのneedleはownedのtextを借用する。
-const PreparedTerms = struct {
+/// 正規化済みの異なる語句を所有する。literal文字列は入力を借用し、deinitで確保を解放する。
+pub const PreparedTerms = struct {
     needles: std.ArrayList([]const u8) = .empty,
     owned: std.ArrayList(normalize.Result) = .empty,
 
-    fn init(allocator: Allocator, terms: []const []const u8, mode: Mode) !PreparedTerms {
+    pub fn init(allocator: Allocator, terms: []const []const u8, mode: Mode) !PreparedTerms {
+        const phase = profile.enter(.query_prepare);
+        defer profile.leave(phase);
         if (terms.len == 0) return error.EmptyQuery;
         var result: PreparedTerms = .{};
         errdefer result.deinit(allocator);
@@ -282,7 +295,7 @@ const PreparedTerms = struct {
         return result;
     }
 
-    fn deinit(self: *PreparedTerms, allocator: Allocator) void {
+    pub fn deinit(self: *PreparedTerms, allocator: Allocator) void {
         const previous = profile.enter(.cleanup);
         defer profile.leave(previous);
         for (self.owned.items) |*value| value.deinit();

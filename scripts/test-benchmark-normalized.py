@@ -87,6 +87,16 @@ class ProfileTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "overlap"):
             runner.parse_profile(json.dumps(profile).encode(), "search", "normalized")
 
+    def test_profile_v3_requires_relevance_phases(self):
+        value = self.profile()
+        value["schema_version"] = 3
+        value["timings_ns"]["ranking"] = 0
+        value["timings_ns"].update({key: 0 for key in runner.RELEVANCE_PHASES})
+        runner.parse_profile(json.dumps(value).encode(), "search", "normalized")
+        del value["timings_ns"]["scoring"]
+        with self.assertRaises(ValueError):
+            runner.parse_profile(json.dumps(value).encode(), "search", "normalized")
+
     def test_profile_v2_requires_ranking_and_preserves_v1(self):
         old = self.profile()
         self.assertNotIn("ranking", runner.parse_profile(json.dumps(old).encode(), "search", "normalized")["timings_ns"])
@@ -98,7 +108,7 @@ class ProfileTest(unittest.TestCase):
         del new["timings_ns"]["ranking"]
         with self.assertRaisesRegex(ValueError, "keys"):
             runner.parse_profile(json.dumps(new).encode(), "search", "normalized")
-        old["schema_version"] = 3
+        old["schema_version"] = 4
         with self.assertRaisesRegex(ValueError, "schema"):
             runner.parse_profile(json.dumps(old).encode(), "search", "normalized")
 

@@ -27,6 +27,7 @@ PHASES = (
     "index_of", "original_span", "output", "cleanup", "other",
 )
 RANKING_PHASE = "ranking"
+RELEVANCE_PHASES = ("field_extract", "field_normalize", "scoring", "proximity", "rank_sort")
 COUNTS = (
     "shortest_posting_count", "candidate_count", "documents_verified", "hit_count",
     "normalized_document_count", "normalized_input_bytes", "span_points_visited",
@@ -145,9 +146,9 @@ def parse_profile(stderr, command, mode):
     )):
         raise ValueError("unexpected profile metadata")
     schema = profile.get("schema_version")
-    if type(schema) is not int or schema not in (1, 2):
+    if type(schema) is not int or schema not in (1, 2, 3):
         raise ValueError("unexpected profile schema")
-    phases = PHASES if schema == 1 else (*PHASES, RANKING_PHASE)
+    phases = PHASES if schema == 1 else (*PHASES, RANKING_PHASE, *(RELEVANCE_PHASES if schema == 3 else ()))
     for category, names in (("timings_ns", phases), ("counts", COUNTS)):
         if set(profile[category]) != set(names):
             raise ValueError(f"unexpected {category} keys")
@@ -340,6 +341,9 @@ def project(raw):
         item["profile_timings_ns"] = {phase: numeric_summary([sample["profile"]["timings_ns"][phase] for sample in record["profile"]["samples"]]) for phase in PHASES}
         ranking_samples = [sample["profile"]["timings_ns"].get(RANKING_PHASE) for sample in record["profile"]["samples"]]
         item["profile_timings_ns"][RANKING_PHASE] = numeric_summary(ranking_samples) if all(value is not None for value in ranking_samples) else None
+        for phase in RELEVANCE_PHASES:
+            samples = [sample["profile"]["timings_ns"].get(phase) for sample in record["profile"]["samples"]]
+            item["profile_timings_ns"][phase] = numeric_summary(samples) if all(value is not None for value in samples) else None
         item["profile_total_ns"] = numeric_summary([sample["profile"]["total_ns"] for sample in record["profile"]["samples"]])
         item["profile_counts"] = {name: numeric_summary([sample["profile"]["counts"][name] for sample in record["profile"]["samples"]]) for name in COUNTS}
         output["results"].append(item)
