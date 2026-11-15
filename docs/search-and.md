@@ -28,6 +28,6 @@ literalは原文、normalizedは[検索の正規化](search-normalization.md)の
 
 検索語句は呼び出し中に一度ずつ準備し、候補本文は一度だけ正規化する。語句ごとの最初の一致位置を検索実行中の配列へ記録し、全語句の成立後にだけ原文区間を復元する。この配列は文書ごとに確保し直さない。
 
-`Index.searchAll(allocator, terms, mode)` と `Index.scanAll(allocator, terms, mode)` は入力を呼び出し中だけ借用する。返す `[]Match` は呼び出し側が同じallocatorで解放する。索引形式v2と保存内容は変更しない。
+`Index.searchAll(allocator, terms, mode)` と `Index.scanAll(allocator, terms, mode)` は入力を呼び出し中だけ借用する。返す `[]Match` は呼び出し側が同じallocatorで解放する。AND検索のための追加情報は保存しない。
 
 独立期待結果と性能スモークの記録は[AND検索の評価](search-and-evaluation.md)を参照。

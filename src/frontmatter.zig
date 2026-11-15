@@ -144,6 +144,11 @@ pub const Metadata = struct {
 
 const Header = struct { payload: []const u8 = "", body_start: usize = 0, present: bool = false };
 
+/// YAMLを解析せずheader境界だけを返す。返す位置は原文UTF-8バイト単位。
+pub fn bodyStart(text: []const u8) Error!usize {
+    return (try header(text)).body_start;
+}
+
 fn header(text: []const u8) Error!Header {
     const start: usize = if (std.mem.startsWith(u8, text, "\xef\xbb\xbf")) 3 else 0;
     const tail = text[start..];

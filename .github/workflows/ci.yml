@@ -37,8 +37,16 @@ jobs:
       - name: Test CLI
         run: python3 scripts/test-cli.py
 
+      - name: Test heading ranking
+        run: python3 scripts/test-ranking.py --output .local/ranking-validation/ci
+
       - name: Test managed binary update without network access
         run: python3 scripts/test-update.py
+
+      - name: Test incremental index and size accounting
+        run: |
+          python3 scripts/test-incremental-cli.py
+          python3 scripts/test-index-size.py
 
       - name: Test benchmark corpus and independent oracle
         run: python3 scripts/test-benchmark-corpus.py

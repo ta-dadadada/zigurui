@@ -44,6 +44,13 @@ def fixtures():
         ("resource", "01-problem.md", resource, "FrontmatterTooLarge"),
         ("number", "01-problem.md", prefix + "number: 1e999\n", "FrontmatterNumberOutOfRange"),
     ]
+    for name, directive in (("yaml", "%YAML 1.1"), ("tag", "%TAG !e! tag:example.invalid,2026:")):
+        # 単独の閉じ区切りはYAMLへ渡らず、directiveに必要な文書開始が欠ける。
+        definitions.append((f"directive-{name}-missing-start", "01-problem.md",
+                            directive + f"\n# {HEADER_MARKER}\n", "InvalidFrontmatter"))
+        definitions.append((f"directive-{name}-recognized", "01-problem.md",
+                            directive + f"\n--- {{state: blocked, private: {HEADER_MARKER}}}\n",
+                            "UnsupportedFrontmatter"))
     definitions.extend((case_id, basename, syntax, "InvalidFrontmatter") for case_id, basename in (
         ("filename-lf", "01-bad\nforged.md"), ("filename-cr", "01-bad\rforged.md"),
         ("filename-tab", "01-bad\tforged.md"), ("filename-esc", "01-bad\x1b[31mforged.md"),
@@ -57,6 +64,22 @@ def fixtures():
         after = frontmatter.document("02-after.md", "state: ready\n", "BodyNeedle after\n", {"state": "ready"})
         result.append({"id": case_id, "documents": [before, bad, after], "problem": basename, "reason": reason})
     return result
+
+
+def directive_text_fixtures():
+    """directiveに似た文字列をYAML構文と誤認しないための手書き期待値。"""
+    yaml_text = "%YAML 1.1"
+    tag_text = "%TAG !e! tag:example.invalid,2026:"
+    cases = (
+        ("quoted", f"yaml: \"{yaml_text}\"\ntag: '{tag_text}'\n",
+         {"yaml": yaml_text, "tag": tag_text}),
+        ("comment", f"# {yaml_text}\n# {tag_text}\nstate: ready\n", {"state": "ready"}),
+        ("block", f"yaml: |\n  {yaml_text}\ntag: >\n  {tag_text}\n",
+         {"yaml": yaml_text + "\n", "tag": tag_text + "\n"}),
+    )
+    return [{"id": f"directive-text-{name}", "documents": [
+        frontmatter.document("note.md", payload, "BodyNeedle\n", metadata)
+    ]} for name, payload, metadata in cases]
 
 
 def aggregate_fixture():
@@ -128,6 +151,21 @@ def run(args):
                     wanted, _ = frontmatter.original_output([problem_doc], ["NoQueryHere"], [], "literal", directory, frontmatter=False)
                     success(frontmatter.search_command(binary, method, "literal", target, ["NoQueryHere"], frontmatter=False, filters=[("file:/name", case["problem"])]), wanted)
                     raw["success_checks"].append({"case_id": case["id"], "method": method, "condition": "file-only-problem-selected", "passed": True})
+        for case in directive_text_fixtures():
+            directory = root / case["id"]
+            documents = case["documents"]
+            write(directory, documents)
+            index = root / (case["id"] + ".zgi")
+            success([binary, "index", directory, index])
+            for method, target in (("search", index), ("scan", directory)):
+                for condition, filters in (("body", []), ("metadata", [
+                        ("/" + key, value) for key, value in documents[0]["metadata"].items()])):
+                    wanted, _ = frontmatter.original_output(documents, ["BodyNeedle"], filters, "literal", directory)
+                    success(frontmatter.search_command(binary, method, "literal", target, ["BodyNeedle"], filters=filters), wanted)
+                    raw["success_checks"].append({"case_id": case["id"], "method": method, "condition": condition, "passed": True})
+            if json.loads(success([binary, "schema", index])) != frontmatter.expected_schema(documents):
+                raise ValueError("directive-like text schema differs from handwritten metadata")
+            raw["success_checks"].append({"case_id": case["id"], "method": "schema", "condition": "handwritten-schema", "passed": True})
         aggregate = root / "schema-aggregation"
         documents = aggregate_fixture()
         write(aggregate, documents)

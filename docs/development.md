@@ -29,6 +29,9 @@ Git hookを未導入の場合は、既存hookと共有範囲を確認してか�
 | `mise exec -- lefthook run pre-commit --all-files` | コミット前の検査を作業ツリー全体に手動実行 |
 | `python3 scripts/test-update.py` | 管理済み実行ファイルの更新結合テスト（取得はスタブ） |
 | `python3 scripts/test-install.py` | インストーラの隔離環境テスト（取得はスタブ） |
+| `python3 scripts/test-incremental-cli.py` | v2/v3互換・差分更新・旧索引保持の結合テスト |
+| `python3 scripts/test-index-size.py` | 保存容量集計と不正入力拒否のテスト |
+| `python3 scripts/test-ranking.py --output .local/ranking-validation/run-1` | 匿名合成文書の順位・検索集合・snapshotを検証（出力先は未使用のパス） |
 | `python3 scripts/test-cli.py` | ビルド済み実行ファイルの結合テスト（Python 3が必要） |
 | `python3 scripts/test-benchmark-corpus.py` | 合成文書・独立した正解判定の単体テスト |
 | `python3 scripts/test-benchmark.py` | 時間・RSSの計測処理の単体テスト |
@@ -68,7 +71,9 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 - `src/search.zig`: コードポイント2-gram、転置インデックス、索引検索、基準となる全文走査
 - `src/frontmatter.zig` / `src/yaml_bridge.c`: 型付きメタデータ、スキーマ集計、YAML解析
 - `src/profile.zig`: 専用ビルドの時間・件数計測
-- `src/storage.zig`: バージョン付き索引形式の符号化・復号・検査
+- `src/storage.zig`: v2読取互換・v3の差分可変長ID形式の符号化・復号・検査
+- `src/incremental.zig`: 未変更文書のpostings再利用と追加・変更・削除の反映
+- `src/ranking.zig`: 保存原文から見出し一致を判定し、一致済み結果だけを並べ替える
 - `src/update.zig`: 実行中の管理済みバイナリの更新を組み込みインストーラへ委譲
 - `src/config.zig`: JSON設定の読み込み・検証と設定内の相対索引パス解決
 - `src/paths.zig`: XDG保存先の解決
@@ -78,7 +83,7 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 - `mise.toml` / `build.zig` / `build.zig.zon`: ツール・タスク・ビルドの定義
 - `.local/`: コンセプト設計書などのローカル資料・一時ファイル（Git管理対象外）
 
-索引の構築・検索・保存を実装し、合成文書で正しさ・速度・容量を比較している。複数語AND・frontmatter・ファイル情報による絞り込みも実装済み。ランキング・見出しの重み付け・差分更新・監視は未実装。現時点の実行確認はmacOSで行っている。
+索引の構築・検索・保存を実装し、合成文書で正しさ・速度・容量を比較している。複数語AND・frontmatter・ファイル情報による絞り込み、明示指定の見出し一致優先と差分更新も実装済み。BM25などの多段階ランキング・監視は未実装。現時点の実行確認はmacOSで行っている。
 
 ## 保守・配布
 
@@ -154,3 +159,5 @@ worktreeはCPU・メモリ・ディスクを分離しない。測定担当は開
 - アプリのlocal environment定義は、導入済みアプリの形式と照合した。セットアップスクリプトは手動実行で検証済み。アプリ画面からの環境選択とworktree作成時の自動起動は未確認。
 
 ローカルの記録は `.local/worktree-validation/`、検証用worktreeはその下の `checkout/` に保持した。raw結果は `checkout/.local/benchmarks/worktree-smoke-01/results.json` にある。検証用キャッシュ・バイナリ・プロンプト診断出力は整理候補だが、まだ削除していない。worktree全体の削除は測定記録も失うため、先に残す記録を選ぶ必要がある。
+
+索引容量の内訳、v3の互換性と差分更新の設計は[保存形式・差分更新](index-storage-design.md)を参照。
