@@ -15,7 +15,7 @@
 
 ## Trivyの対象と判定
 
-`.github/workflows/security.yml` は、mainへのpush、pull request、手動実行でリポジトリのfilesystemを検査する。権限は `contents: read` とし、結果はconsoleへ表示する。SARIFの送信やSecurity設定の変更は行わない。ActionはコミットSHA、本体は固定バージョンを指定する。
+`.github/workflows/security.yml` は、mainへのpush、pull request、手動実行でリポジトリのfilesystemを検査する。CI手動とタグ公開前からも再利用する。イベント条件と公開ゲートは[CIの実行条件](ci.md)を参照。権限は `contents: read` とし、結果はconsoleへ表示する。SARIFの送信やSecurity設定の変更は行わない。ActionはコミットSHA、本体は固定バージョンを指定する。
 
 共通の除外、キャッシュ、表示形式と終了コードは `trivy.yaml` を正本とする。scannerとseverityの組み合わせは `security.yml` の `matrix.include` の2profileを正本とし、別々のジョブで並列実行する。Trivy Actionと本体バージョンの指定は共通の1stepに置く。`fail-fast: false` により、一方が失敗しても他方を打ち切らず、両方の結果を確認する。
 

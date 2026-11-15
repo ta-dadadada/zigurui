@@ -1,4 +1,4 @@
-"""prerelease用の2種類の実行ファイルを構築し、限定した配布物だけを梱包する。"""
+"""配布用の2種類の実行ファイルを構築し、限定した配布物だけを梱包する。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ REPOSITORY = Path(__file__).resolve().parent.parent
 TARGETS = {"macos-arm64": "aarch64-macos", "linux-x86_64": "x86_64-linux-musl"}
 LICENSE_NAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING")
 DEPENDENCY_LICENSES = {"LICENSE-utf8proc.md": "vendor/utf8proc/LICENSE.md", "LICENSE-libyaml.txt": "vendor/libyaml/License"}
-TAG_PATTERN = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*)", re.ASCII)
+TAG_PATTERN = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*))?", re.ASCII)
 TARGET_FILES = {"zigurui", "target.json"}
 PRIVATE_MARKERS = (b"/Users/", b"/home/", b"/root/", b"/private/var/folders/", b".debug_info", b"__DWARF")
 
@@ -28,10 +28,16 @@ def target_matrix() -> dict:
 
 
 def validate_tag(tag: str) -> str:
-    """archive名に使えるalpha・beta・rcのSemVerタグだけを受け付ける。"""
+    """archive名に使えるstable・alpha・beta・rcのSemVerタグだけを受け付ける。"""
     if len(tag) > 64 or TAG_PATTERN.fullmatch(tag) is None:
-        raise ValueError("tag must be vX.Y.Z-alpha.N, vX.Y.Z-beta.N or vX.Y.Z-rc.N (at most 64 characters)")
+        raise ValueError("tag must be vX.Y.Z or vX.Y.Z-(alpha|beta|rc).N (at most 64 characters)")
     return tag
+
+
+def release_flags(tag: str) -> list[str]:
+    """stableはLatest、prereleaseはLatest対象外として公開する。"""
+    validate_tag(tag)
+    return ["--prerelease", "--latest=false"] if "-" in tag else ["--latest=true"]
 
 
 def archive_stem(tag: str, target: str) -> str:
@@ -236,6 +242,8 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate-tag")
     validate.add_argument("tag")
+    flags = commands.add_parser("release-flags")
+    flags.add_argument("tag")
     targets = commands.add_parser("targets")
     targets.add_argument("--github-output", type=Path)
     target_parser = commands.add_parser("build-target")
@@ -256,6 +264,8 @@ def main() -> None:
     try:
         if args.command == "validate-tag":
             validate_tag(args.tag)
+        elif args.command == "release-flags":
+            print(" ".join(release_flags(args.tag)))
         elif args.command == "targets":
             matrix = json.dumps(target_matrix(), separators=(",", ":"))
             if args.github_output:
