@@ -81,7 +81,7 @@ zigurui search --mode normalized /path/to/normalized.idx 'ガラス'
 
 ## 設定ファイル
 
-毎回同じ索引・検索モードを使う場合は、`zigurui paths` の `config_file` に表示される場所へUTF-8の `config.json` を作成する。既定は `~/.config/zigurui/config.json`。ファイルと親ディレクトリは自動作成しない。例:
+毎回同じ索引・検索モード・順位を使う場合は、`zigurui paths` の `config_file` に表示される場所へUTF-8の `config.json` を作成する。既定は `~/.config/zigurui/config.json`。ファイルと親ディレクトリは自動作成しない。例:
 
 ```json
 {
@@ -103,7 +103,7 @@ zigurui search --mode normalized /path/to/normalized.idx 'ガラス'
 
 設定ファイルがなければ従来の既定値で動作する。HOMEも有効なXDG_CONFIG_HOMEもなく設定先を決められない場合は設定なしとして扱い、明示パスでの操作を維持する。既定索引が必要な場合は、有効なXDG_DATA_HOMEかHOMEを設定する。
 
-存在する設定は、CLIで上書きする項目も含めて全体を検証する。JSONオブジェクト以外、未知キー、重複キー、文字列以外（nullを含む）、不正なmode、空・NULを含むindex_path、不正UTF-8、64 KiBを超えるファイルはエラーになる。空ファイルも不正。構文不正や読取権限不足では設定ファイルの場所と理由を表示し、索引・設定を変更せず停止する。`help` と `version` / `--version` は設定を読まずに使用できる。設定ファイル自身を索引で上書きする指定は拒否する。
+存在する設定は、CLIで上書きする項目も含めて全体を検証する。JSONオブジェクト以外、未知キー、重複キー、mode/index_path/rankの文字列以外（nullを含む）、不正なmode/rank、空・NULを含むindex_path、不正UTF-8、64 KiBを超えるファイルはエラーになる。空ファイルも不正。構文不正や読取権限不足では設定ファイルの場所と理由を表示し、索引・設定を変更せず停止する。`help` と `version` / `--version` は設定を読まずに使用できる。設定ファイル自身を索引で上書きする指定は拒否する。
 
 バイナリを更新・ダウングレードしても設定内容は保持する。旧版が新しい設定項目を理解できる保証はないため、未対応の版へ戻す場合は設定項目も確認する。
 
@@ -208,7 +208,7 @@ zigurui index --mode normalized --incremental /path/to/notes /path/to/notes.idx
 
 この機能は開発版の機能で、公開済み`v0.1.0-alpha.3`には含まれない。
 
-`search` / `scan` の入力パス前に `--rank heading` を指定すると、一致済み文書のうち、検索語のいずれかが見出しにも一致する文書を先に表示する。指定なし、または `--rank path` では従来のパス順を維持する。同点はパス順。見出しの階層、個数、出現回数、一致語数では加点しない。AND検索は検索対象範囲で全語句が一致する条件を維持し、その一部が見出しにあれば優先する。
+`search` / `scan` の入力パス前に `--rank heading` を指定すると、一致済み文書のうち、検索語のいずれかが見出しにも一致する文書を先に表示する。順位を設定していなければ指定なし、または明示 `--rank path` で従来のパス順を維持する。同点はパス順。見出しの階層、個数、出現回数、一致語数では加点しない。AND検索は検索対象範囲で全語句が一致する条件を維持し、その一部が見出しにあれば優先する。
 
 ```sh
 zigurui search --mode normalized --rank heading notes.idx 'ガラス'
@@ -220,3 +220,41 @@ zigurui scan --mode normalized --all --rank heading notes 'ガラス' '断熱'
 文書先頭のfrontmatterと、バッククォートまたはチルダ3個以上で開始するコードフェンス内は加点対象外。閉じていないフェンスは残りを除外する。frontmatter境界が不正・上限超過の場合はその文書を加点しない。ランキングのためにYAMLの値を解析せず、通常検索にfrontmatter検証エラーを追加しない。`--frontmatter` 指定時の既存検証は維持する。
 
 見出しの照合にも指定したliteral/normalizedを使う。検索結果の文書集合・行番号・抜粋は変えず、抜粋を見出しへ移動しない。`search` は索引に保存された原文、`scan` は現在の原文で判定する。見出し優先のための追加の索引形式変更や再構築は不要。順位の有用性と性能は実KBでは未評価。
+
+
+## relevanceの順位と説明を見る
+
+`--rank relevance` は一致済み文書をfieldの語句coverageと近接で採点する。通常表示の形式・一致位置・抜粋はそのままで、同点はパス順。既定はpath。設定の `rank` でも明示的に選べ、CLI指定 > config > pathの順に優先する。再構築は不要でv2/v3の保存原文を使う。
+
+```sh
+zigurui search --mode normalized --all --rank relevance notes.idx 'ガラス' '断熱'
+zigurui search --mode normalized --all --rank relevance --explain notes.idx 'ガラス' '断熱'
+```
+
+`--explain` はrelevance専用のJSON契約（schema_version=1、algorithm=relevance-v1）。1件でもtotalとfield別内訳を返し、通常表示と順位・集合を共有する。offset/endは原文UTF-8バイト、window/ordered_windowは検索表現のUnicodeコードポイント半開区間で、bodyでは本文先頭、他fieldでは値先頭が0。valueは文字列値の0始まり番号。matched_term_indicesは検索modeで重複排除した入力順の0始まり語句番号。語句やfield値は出さないが、パスや設定の経路は含むため、説明JSONをそのまま公開しない。
+
+設定例（schemaは架空）:
+
+```json
+{
+  "rank": "relevance",
+  "relevance": {
+    "fields": [
+      {"kind": "body", "weight": 1},
+      {"kind": "heading", "weight": 2},
+      {"kind": "file_name", "weight": 1},
+      {"kind": "metadata", "pointer": "/subject", "weight": 2}
+    ],
+    "proximity_weight": 1,
+    "ordered_weight": 1
+  }
+}
+```
+
+fieldsを省略するとbody=1、heading=2、file_name=1。明示配列は全置換で1〜32件。metadataは任意の配列透過キー経路（既存 `--where` のescape規則）を指定する。title/tags等の固定項目はない。未設定・数値/bool/null・objectは採点せず、配列の各文字列は独立した値として最良の値だけを使う。重みは有限な0〜100で、未知項目・重複field・無効な経路を拒否する。relevance設定だけでは順位を有効にしない。CLIには重み指定を追加せずconfigへ集約する。
+
+metadataを設定した場合は重み0でも一致済み文書のYAMLを検証する。不正なら診断名と対象パスを返して停止し、部分結果は出さない。非候補は追加解析しない（`--frontmatter` 自体の全体検証は従来どおり）。metadata未設定のpath/heading/relevanceには新しいYAML検証を追加しない。`--where` の型付き完全一致は正規化しない。
+
+coverageは異なる入力語句の一致割合で、反復回数を加算しない。bodyは本文全体、headingは一つのATX見出し、metadataは一つの文字列値で数える。近接は同じfield値に限定し、bodyは同じ物理行に限定する。unorderedは全語句を覆う最短区間、orderedは入力順に開始位置が非減少となる最短区間。別配列要素や別見出しを結合しない。単一引数は従来どおり連続部分一致、複数引数の空白結合を完全語句とは扱わない。
+
+採点式、W-Lが重なりにより隙間を相殺する性質、資源上限と超過時エラー、独立評価と限界は[relevanceの設計・検証](relevance-ranking.md)を参照。

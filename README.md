@@ -48,7 +48,7 @@ zigurui search --mode normalized notes.idx 'ｶﾞﾗｽ'
 zigurui search --mode normalized --all notes.idx 'ガラス' '断熱'
 ```
 
-結果は `絶対パス:行番号: 抜粋` の形式で、文書ごとに1件、既定ではパス順に表示する。見出し一致を優先する場合は [利用手順](docs/usage.md#見出し一致を優先する) の `--rank heading` を使う。上の例では `housing.md` の2行目が見つかる。
+結果は `絶対パス:行番号: 抜粋` の形式で、文書ごとに1件、既定ではパス順に表示する。見出し一致を優先する場合は [利用手順](docs/usage.md#見出し一致を優先する) の `--rank heading` を使う。fieldと近接による明示順位 `--rank relevance` と説明JSONは[利用手順](docs/usage.md#relevanceの順位と説明を見る)を参照。上の例では `housing.md` の2行目が見つかる。
 
 自分の文書を検索するには `notes` を対象ディレクトリに置き換える。`.md` / `.markdown` を再帰的に読み込む。シンボリックリンクは追跡せず、隠しファイル・ディレクトリは対象に含む。原文の変更後は同じ `index` コマンドを再実行する。
 

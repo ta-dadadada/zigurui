@@ -109,6 +109,25 @@ fn findValue(value: Value, pointer: []const u8, expected: ?Scalar) ?Value {
     return null;
 }
 
+fn appendStrings(allocator: Allocator, value: Value, out: *std.ArrayList([]const u8)) Allocator.Error!void {
+    switch (value) {
+        .scalar => |v| if (v == .string) {
+            try out.append(allocator, v.string);
+        },
+        .array => |items| for (items) |item| try appendStrings(allocator, item, out),
+        .object => {},
+    }
+}
+fn collectStrings(allocator: Allocator, value: Value, pointer: []const u8, out: *std.ArrayList([]const u8)) Allocator.Error!void {
+    switch (value) {
+        .scalar => {},
+        .array => |items| for (items) |item| try collectStrings(allocator, item, pointer, out),
+        .object => |fields| for (fields) |field| {
+            if (std.mem.eql(u8, field.pointer, pointer)) try appendStrings(allocator, field.value, out) else try collectStrings(allocator, field.value, pointer, out);
+        },
+    }
+}
+
 /// rootのfieldsとその子を所有する。body_startは元の文書のUTF-8バイト位置。
 pub const Metadata = struct {
     fields: std.ArrayList(Field) = .empty,
@@ -122,6 +141,12 @@ pub const Metadata = struct {
 
     fn find(self: *const Metadata, pointer: []const u8) ?Value {
         return findValue(.{ .object = self.fields.items }, pointer, null);
+    }
+
+    /// 配列透過のキー経路の文字列だけを借用して追加する。配列要素は連結せず型変換しない。
+    /// outの確保は呼び出し元が解放する。文字列の寿命はMetadataと同じ。
+    pub fn strings(self: *const Metadata, allocator: Allocator, pointer: []const u8, out: *std.ArrayList([]const u8)) !void {
+        try collectStrings(allocator, .{ .object = self.fields.items }, pointer, out);
     }
 
     /// pathは保存snapshotまたはscanで収集した文書パスを借用する。

@@ -5,7 +5,7 @@ const search = @import("search.zig");
 const normalize = @import("normalize.zig");
 const frontmatter = @import("frontmatter.zig");
 
-pub const Order = enum { path, heading };
+pub const Order = enum { path, heading, relevance };
 const Scored = struct { match: search.Match, heading: bool };
 
 /// documentsとtermsを借用し、matchesの順序だけを変更する。途中の失敗ではmatchesを変更しない。
@@ -42,8 +42,23 @@ pub fn sort(allocator: std.mem.Allocator, documents: []const search.Document, ma
 }
 
 fn hasHeading(allocator: std.mem.Allocator, text: []const u8, queries: []const []const u8, mode: search.Mode) !bool {
+    var values: std.ArrayList([]const u8) = .empty;
+    defer values.deinit(allocator);
+    try headings(allocator, text, &values);
+    for (values.items) |heading| {
+        if (mode == .normalized) {
+            var normalized = try normalize.transform(allocator, heading);
+            defer normalized.deinit();
+            if (containsAny(normalized.text, queries)) return true;
+        } else if (containsAny(heading, queries)) return true;
+    }
+    return false;
+}
+
+/// 既存heading契約のATX値をtextから借用してoutへ追加する。outの確保は呼び出し元が解放する。
+pub fn headings(allocator: std.mem.Allocator, text: []const u8, out: *std.ArrayList([]const u8)) !void {
     // 壊れた/上限超過headerは加点しない。通常検索にYAML検証エラーを追加しない。
-    const body_start = frontmatter.bodyStart(text) catch return false;
+    const body_start = frontmatter.bodyStart(text) catch return;
     const start = if (body_start == 0 and std.mem.startsWith(u8, text, "\xef\xbb\xbf")) 3 else body_start;
     var lines = std.mem.splitScalar(u8, text[start..], '\n');
     var fence: u8 = 0;
@@ -74,13 +89,8 @@ fn hasHeading(allocator: std.mem.Allocator, text: []const u8, queries: []const [
         var end = heading.len;
         while (end > 0 and heading[end - 1] == '#') : (end -= 1) {}
         if (end == 0 or (end < heading.len and (heading[end - 1] == ' ' or heading[end - 1] == '\t'))) heading = std.mem.trimEnd(u8, heading[0..end], " \t");
-        if (mode == .normalized) {
-            var normalized = try normalize.transform(allocator, heading);
-            defer normalized.deinit();
-            if (containsAny(normalized.text, queries)) return true;
-        } else if (containsAny(heading, queries)) return true;
+        try out.append(allocator, heading);
     }
-    return false;
 }
 
 fn containsAny(text: []const u8, queries: []const []const u8) bool {

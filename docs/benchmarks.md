@@ -141,8 +141,10 @@ python3 scripts/benchmark_report.py \
 
 ## 正規化検索の内訳計測
 
-`zig build -Doptimize=ReleaseFast -Dprofile=true --prefix .local/benchmarks/<専用出力先>` で計測専用バイナリを作る。既定のビルドは時計・集計を実行しない。計測版は検索結果を変えず、標準エラーへschema_version=2のJSONを1行出す。旧schema 1の読み取りとranking区間の扱いは[正規化検索の計測](normalization-performance.md)を参照する。本文・検索語・パスは含めない。
+`zig build -Doptimize=ReleaseFast -Dprofile=true --prefix .local/benchmarks/<専用出力先>` で計測専用バイナリを作る。既定のビルドは時計・集計を実行しない。計測版は検索結果を変えず、標準エラーへschema_version=3のJSONを1行出す。旧schema 1/2の読み取りとranking区間の扱いは[正規化検索の計測](normalization-performance.md)を参照する。本文・検索語・パスは含めない。
 
 `timings_ns` は切り替え式の非重複区間で、read、checksum、decode、query_prepare、candidates、span_transform、index_of、original_span、output、cleanup、ranking、otherを記録する。span_transformは原文位置対応付きの本文変換全体、query_prepareは検索語の変換を含む。total_nsは区間合計と別枠の総時間であり、合計へ再加算しない。cleanupは明示的な解放だけを含み、プロセス終了時のarena解放とJSON出力自体は測定しない。計測器の呼び出し負荷を含むため、速度比較は計測なし版でも行う。
 
 `counts` は最短posting件数、全gramを通過した候補数、本文検証数、一致数、本文変換回数と入力UTF-8バイト数、位置復元で訪問したpoint数を記録する。全文走査ではpostingに関する2件数は0、本文検証数が走査文書数となる。位置復元のpoint数は終了判定で訪問したpointも含み、ASCIIの恒等対応は0となる。単一スレッドCLI用の集計であり、並列検索には使用しない。
+
+relevanceの計装はfield_extract/field_normalize/scoring/proximity/rank_sortを排他的に分ける。通常版のwall/CPU/RSSと計装版の内訳は `scripts/benchmark-relevance.py` で別々に記録する。実施条件と性能スモークの限界は[relevanceの記録](relevance-ranking.md)を参照。
