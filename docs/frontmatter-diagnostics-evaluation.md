@@ -13,6 +13,16 @@
 
 診断検査scriptの単体テスト5件も成功し、評価前後のバイナリハッシュは一致した。過去の性能測定・匿名要約は再実行・変更していない。
 
+## directive診断の追加確認
+
+`fd64096` のReleaseFast通常版に対し、合成fixtureを追加したrunnerで停止106件・成功93件、診断検査scriptの単体テスト6件が成功した。既存の78件・54件も含む。バイナリのSHA-256は評価前後で `ac84c8747ffa1dec030572b83b5190c5c6471c368d192e81a23b28e865f7c0cb` と一致した。
+
+- `%YAML` / `%TAG` の各2経路を追加した。frontmatterの終了区切りを除くとYAML文書開始が残らない例は `InvalidFrontmatter`、payload内に `--- {state: blocked, ...}` が残ってdirectiveを認識する例は `UnsupportedFrontmatter` だった。各例でsearch/scanの候補外・file条件外・metadata条件外、およびschemaの計28件の停止と診断契約を確認した。
+- 引用・コメント・block scalar内のdirectiveに似た文字列は拒否しなかった。手書きmetadataを正解として、本文検索・metadata条件付き検索をsearch/scanで照合し、schemaも比較した（計15件）。
+- 追加した拒否例でも通常検索・file-only検索の計24件は成功した。理由の取り違えを診断検査が拒否する単体テストも追加した。
+
+実装は変更せず、[YAMLの範囲](frontmatter.md#yamlの範囲と上限)に、区切り除去後の構文によって診断名が異なる契約を明記した。追加確認は `.local/integration/pr14-followup/directive-contract-01/` に保持し、上記の既存匿名要約は上書きしていない。実KBは取り込まず、この確認で性能は測定していない。
+
 ## 検証の限界
 
 実行時OOM、stderrの途中書き込み失敗、結果出力開始後のstdout I/O失敗の注入は行っていない。出力開始後にOSの書き込みが失敗した場合、既に出たバイトの撤回は保証しない。今回の1行検査は通常ビルドが対象で、計測専用ビルドの追加profile JSONは対象外。実データや別環境でも未検証である。

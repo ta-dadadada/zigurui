@@ -46,6 +46,14 @@ class DiagnosticOracleTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 evaluation.check_diagnostic(1, b"", stderr, path, "InvalidFrontmatter")
 
+    def test_invalid_and_unsupported_reasons_are_not_interchangeable(self):
+        path = Path('/synthetic/directive"\\\t.md')
+        for expected, wrong in (("InvalidFrontmatter", "UnsupportedFrontmatter"),
+                                ("UnsupportedFrontmatter", "InvalidFrontmatter")):
+            evaluation.check_diagnostic(1, b"", diagnostic(path, expected), path, expected)
+            with self.assertRaises(ValueError):
+                evaluation.check_diagnostic(1, b"", diagnostic(path, wrong), path, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

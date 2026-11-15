@@ -71,7 +71,18 @@ root・配列添字・匿名の配列要素はfieldとして出さない。objec
 
 文書先頭（UTF-8 BOMは許可）の完全な `---` 行から開始し、完全な `---` または `...` 行で終了する。改行はLF/CRLFに対応する。前後の空白や余分なCRを含む行は区切りではない。閉じ区切り後の改行までを除いた位置から本文となる。開始区切りがない文書はmetadataなし・本文全体、開始があって閉じがない文書はエラー。
 
-空・コメントだけのheaderは空map。rootはmapのみ、nested mapとscalar・map・配列を含む配列を扱う。anchors、aliases、明示tags、YAML directives、mergeキー `<<` は `UnsupportedFrontmatter`。キーは復号後のscalar文字列として扱い、同じmapの重複キーや壊れた構文は `InvalidFrontmatter`。
+空・コメントだけのheaderは空map。rootはmapのみ、nested mapとscalar・map・配列を含む配列を扱う。anchors、aliases、明示tags、構文上認識されたYAML directives、mergeキー `<<` は `UnsupportedFrontmatter`。キーは復号後のscalar文字列として扱い、同じmapの重複キーや壊れた構文は `InvalidFrontmatter`。
+
+`%YAML` / `%TAG` の診断は、区切りを除いたpayloadの構文に依存する。directive後に必要なYAML文書開始がない場合は `InvalidFrontmatter`。例えば次の単独 `---` はfrontmatterの終了区切りとなり、YAMLの文書開始としては渡らない。
+
+```text
+---
+%YAML 1.1
+---
+本文
+```
+
+一方、payload中の `--- {key: value}` のように文書開始とノードが同じ行にあればfrontmatterの終了区切りではなく、directiveを認識した時点で `UnsupportedFrontmatter` となる。引用文字列・コメント・block scalar内の `%YAML` / `%TAG` はdirectiveではない。診断名を決めるための文字列走査は行わない。
 
 | 制限 | 値と数え方 |
 | --- | --- |
