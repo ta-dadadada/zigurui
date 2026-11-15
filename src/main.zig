@@ -4,6 +4,7 @@
 const std = @import("std");
 const profile = @import("profile.zig");
 const search = @import("search.zig");
+const query = @import("query.zig");
 const storage = @import("storage.zig");
 const incremental = @import("incremental.zig");
 const relevance = @import("relevance.zig");
@@ -107,8 +108,6 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
     if (searching and !arguments.rank_specified) arguments.rank = config.rank;
     arguments.relevance_settings = config.relevance;
     if (arguments.explain and arguments.rank != .relevance) return error.InvalidArguments;
-    var scores: ?[]relevance.Result = null;
-    defer if (scores) |value| relevance.deinit(init.gpa, value);
     const default_index = if (arguments.default_index) config.index_path orelse try Paths.defaultIndex(allocator, init.environ_map) else null;
     if (default_index) |path| {
         if (std.mem.eql(u8, args[1], "index")) arguments.value = path else arguments.input = path;
@@ -189,30 +188,22 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
             succeeded = true;
             return;
         }
-        const matches = findDetailed(init.gpa, &stored.index, &arguments, filters, false, &diagnostic, &scores) catch |err| {
+        var result = query.execute(init.gpa, &stored.index, arguments.searchRequest(), filters, .index, &diagnostic) catch |err| {
             reportDiagnostic(init.io, stored.index.documents, diagnostic, reported);
             return err;
         };
-        defer {
-            const previous = profile.enter(.cleanup);
-            defer profile.leave(previous);
-            init.gpa.free(matches);
-        }
-        if (arguments.explain) try printExplanation(allocator, init.io, scores.?, arguments) else try printMatches(allocator, init.io, stored.index.documents, matches);
+        defer result.deinit();
+        if (arguments.explain) try printExplanation(allocator, init.io, result.scores.?, arguments) else try printMatches(allocator, init.io, stored.index.documents, result.matches);
     } else if (std.mem.eql(u8, args[1], "scan")) {
         const documents = try loadCorpus(allocator, init.io, input);
         // 正解の基準となる全文走査では索引を構築しない。
         const index: search.Index = .{ .allocator = allocator, .documents = documents, .postings = &.{} };
-        const matches = findDetailed(init.gpa, &index, &arguments, filters, true, &diagnostic, &scores) catch |err| {
+        var result = query.execute(init.gpa, &index, arguments.searchRequest(), filters, .scan, &diagnostic) catch |err| {
             reportDiagnostic(init.io, documents, diagnostic, reported);
             return err;
         };
-        defer {
-            const previous = profile.enter(.cleanup);
-            defer profile.leave(previous);
-            init.gpa.free(matches);
-        }
-        if (arguments.explain) try printExplanation(allocator, init.io, scores.?, arguments) else try printMatches(allocator, init.io, documents, matches);
+        defer result.deinit();
+        if (arguments.explain) try printExplanation(allocator, init.io, result.scores.?, arguments) else try printMatches(allocator, init.io, documents, result.matches);
     } else return error.InvalidArguments;
     succeeded = true;
 }
@@ -234,6 +225,16 @@ const Arguments = struct {
     frontmatter: bool = false,
     where: [frontmatter.max_filters]Where = undefined,
     where_count: usize = 0,
+
+    fn searchRequest(self: *const Arguments) query.Request {
+        return .{
+            .terms = if (self.all) .{ .all = self.terms } else .{ .single = self.value },
+            .mode = self.mode,
+            .frontmatter = self.frontmatter,
+            .rank = self.rank,
+            .relevance_settings = self.relevance_settings,
+        };
+    }
 };
 
 fn parseArguments(args: []const []const u8) !Arguments {
@@ -317,32 +318,6 @@ fn prepareFilters(allocator: std.mem.Allocator, parsed: *const Arguments) ![]fro
         initialized += 1;
     }
     return filters;
-}
-
-fn findMatches(allocator: std.mem.Allocator, index: *const search.Index, parsed: *const Arguments, filters: []const frontmatter.Filter, scan: bool, diagnostic: ?*?frontmatter.Diagnostic) ![]search.Match {
-    return findDetailed(allocator, index, parsed, filters, scan, diagnostic, null);
-}
-
-fn findDetailed(allocator: std.mem.Allocator, index: *const search.Index, parsed: *const Arguments, filters: []const frontmatter.Filter, scan: bool, diagnostic: ?*?frontmatter.Diagnostic, scores: ?*?[]relevance.Result) ![]search.Match {
-    if (diagnostic) |out| out.* = null;
-    var projection: ?frontmatter.Projection = if (parsed.frontmatter or filters.len != 0) try frontmatter.Projection.init(allocator, index.documents, filters, parsed.frontmatter, diagnostic) else null;
-    defer if (projection) |*value| value.deinit(allocator);
-    // 投影は原文とpostingsを借用するだけで、Index.deinitは呼ばない。
-    const projected: search.Index = if (projection) |value| .{ .allocator = allocator, .documents = value.documents, .postings = index.postings, .mode = index.mode, .eligible = value.eligible } else index.*;
-    var prepared: ?search.PreparedTerms = if (parsed.rank == .relevance) try search.PreparedTerms.init(allocator, parsed.terms, parsed.mode) else null;
-    defer if (prepared) |*ready| ready.deinit(allocator);
-    const matches = if (prepared) |*ready| try projected.findReady(allocator, ready, parsed.mode, scan) else if (scan)
-        (if (parsed.all) try projected.scanAll(allocator, parsed.terms, parsed.mode) else try projected.scanMode(allocator, parsed.value, parsed.mode))
-    else
-        (if (parsed.all) try projected.searchAll(allocator, parsed.terms, parsed.mode) else try projected.searchMode(allocator, parsed.value, parsed.mode));
-    errdefer allocator.free(matches);
-    if (projection) |value| value.restore(matches);
-    if (parsed.rank == .heading) try ranking.sort(allocator, index.documents, matches, parsed.terms, parsed.mode);
-    if (prepared) |ready| {
-        const results = try relevance.rank(allocator, index.documents, matches, ready.needles.items, parsed.mode, parsed.relevance_settings, diagnostic);
-        if (scores) |out| out.* = results else relevance.deinit(allocator, results);
-    }
-    return matches;
 }
 
 // 設定ファイル自身や、そのシンボリックリンク先を索引で上書きしない。
@@ -490,55 +465,6 @@ test "frontmatterのCLIはinput前のwhereを2引数ずつ受け本文語を再�
     try std.testing.expectError(error.InvalidArguments, parseArguments(&.{ "zigurui", "schema", "--frontmatter", "index" }));
 }
 
-test "本文投影はmetadataだけの一致を除きAND原文両端を復元する" {
-    const allocator = std.testing.allocator;
-    const prefix = "\xef\xbb\xbf---\r\ntitle: header-only\r\nstate: ready\r\n---\r\n";
-    const documents = [_]search.Document{
-        .{ .path = "a", .text = prefix ++ "前㌔後 ｶﾞ" },
-        .{ .path = "b", .text = "---\nstate: draft\n---\nキロ ガ" },
-        .{ .path = "c", .text = "キロ ガ" },
-    };
-    var index = try search.Index.initMode(allocator, &documents, .normalized);
-    defer index.deinit();
-    var filter = try frontmatter.Filter.init(allocator, "/state", "\"ready\"");
-    defer filter.deinit(allocator);
-    const parsed: Arguments = .{ .mode = .normalized, .input = "", .all = true, .terms = &.{ "ガ", "ロ" }, .frontmatter = true };
-    for ([_]bool{ false, true }) |scan| {
-        const matches = try findMatches(allocator, &index, &parsed, &.{filter}, scan, null);
-        defer allocator.free(matches);
-        try std.testing.expectEqualSlices(search.Match, &.{.{ .doc_id = 0, .offset = prefix.len + 3, .end = prefix.len + 6 }}, matches);
-    }
-    var single: Arguments = .{ .mode = .normalized, .input = "", .value = "header-only", .frontmatter = true };
-    const body = try findMatches(allocator, &index, &single, &.{}, false, null);
-    defer allocator.free(body);
-    try std.testing.expectEqual(@as(usize, 0), body.len);
-    single.frontmatter = false;
-    const raw = try findMatches(allocator, &index, &single, &.{}, false, null);
-    defer allocator.free(raw);
-    try std.testing.expectEqual(@as(usize, 1), raw.len);
-    single.frontmatter = true;
-    single.mode = .literal;
-    single.value = "ｶﾞ";
-    const literal = try findMatches(allocator, &index, &single, &.{}, false, null);
-    defer allocator.free(literal);
-    try std.testing.expectEqualSlices(search.Match, &.{.{ .doc_id = 0, .offset = prefix.len + 10, .end = prefix.len + 16 }}, literal);
-}
-
-test "候補外やfilter不一致の不正frontmatterも全体エラーにする" {
-    const allocator = std.testing.allocator;
-    const documents = [_]search.Document{
-        .{ .path = "a", .text = "---\nstate: ready\n---\nknown" },
-        .{ .path = "b", .text = "---\nstate: [broken\n---\nother" },
-    };
-    var index = try search.Index.init(allocator, &documents);
-    defer index.deinit();
-    const parsed: Arguments = .{ .mode = .literal, .input = "", .value = "nonexistent", .frontmatter = true };
-    var filter = try frontmatter.Filter.init(allocator, "/state", "\"ready\"");
-    defer filter.deinit(allocator);
-    try std.testing.expectError(error.InvalidFrontmatter, findMatches(allocator, &index, &parsed, &.{filter}, false, null));
-    try std.testing.expectError(error.InvalidFrontmatter, findMatches(allocator, &index, &parsed, &.{filter}, true, null));
-}
-
 test "where条件は64個まで許容し65個目を拒否する" {
     const allocator = std.testing.allocator;
     var args: std.ArrayList([]const u8) = .empty;
@@ -552,20 +478,6 @@ test "where条件は64個まで許容し65個目を拒否する" {
     try std.testing.expectError(error.InvalidFilter, parseArguments(args.items));
 }
 
-test "本文先頭の結合文字でも原文postingsが本文正規化の候補を落とさない" {
-    const allocator = std.testing.allocator;
-    const prefix = "---\nx: v\n---\n";
-    const documents = [_]search.Document{.{ .path = "a", .text = prefix ++ "\u{315}\u{300}A" }};
-    var index = try search.Index.initMode(allocator, &documents, .normalized);
-    defer index.deinit();
-    const parsed: Arguments = .{ .mode = .normalized, .input = "", .frontmatter = true, .all = true, .terms = &.{ "a", "\u{300}\u{315}" } };
-    for ([_]bool{ false, true }) |scan| {
-        const matches = try findMatches(allocator, &index, &parsed, &.{}, scan, null);
-        defer allocator.free(matches);
-        try std.testing.expectEqualSlices(search.Match, &.{.{ .doc_id = 0, .offset = prefix.len, .end = prefix.len + 4 }}, matches);
-    }
-}
-
 test "file条件だけならfrontmatter指定不要でmetadata条件との混在時は必要" {
     const raw = try parseArguments(&.{ "zigurui", "search", "--where", "file:/name", "\"a.md\"", "index", "word" });
     try std.testing.expect(!raw.frontmatter and raw.where_count == 1);
@@ -573,54 +485,6 @@ test "file条件だけならfrontmatter指定不要でmetadata条件との混在
     const mixed = try parseArguments(&.{ "zigurui", "search", "--where", "file:/name", "\"a.md\"", "--where", "/state", "\"ready\"", "--frontmatter", "index", "word" });
     try std.testing.expect(mixed.frontmatter and mixed.where_count == 2);
     try std.testing.expectError(error.InvalidFilter, parseArguments(&.{ "zigurui", "search", "--where", "file:/size", "1", "index", "word" }));
-}
-
-test "file-only条件はraw検索を保ち壊れたYAMLを解析しない" {
-    const allocator = std.testing.allocator;
-    const documents = [_]search.Document{
-        .{ .path = "/kb/a/note.md", .text = "---\ntitle: header-word\n---\nbody" },
-        .{ .path = "/kb/b/note.md", .text = "---\nbroken header-word" },
-        .{ .path = "/kb/other.md", .text = "header-word" },
-    };
-    var index = try search.Index.initMode(allocator, &documents, .normalized);
-    defer index.deinit();
-    var filter = try frontmatter.Filter.init(allocator, "file:/name", "\"note.md\"");
-    defer filter.deinit(allocator);
-    const parsed: Arguments = .{ .mode = .normalized, .input = "", .value = "HEADER-WORD" };
-    for ([_]bool{ false, true }) |scan| {
-        const matches = try findMatches(allocator, &index, &parsed, &.{filter}, scan, null);
-        defer allocator.free(matches);
-        try std.testing.expectEqualSlices(search.Match, &.{ .{ .doc_id = 0, .offset = 11, .end = 22 }, .{ .doc_id = 1, .offset = 11, .end = 22 } }, matches);
-    }
-    var unnormalized = try frontmatter.Filter.init(allocator, "file:/name", "\"NOTE.md\"");
-    defer unnormalized.deinit(allocator);
-    const no_match = try findMatches(allocator, &index, &parsed, &.{unnormalized}, false, null);
-    defer allocator.free(no_match);
-    try std.testing.expectEqual(@as(usize, 0), no_match.len);
-}
-
-test "builtin pathはv2保存snapshotを使い相対pathも推測で書き換えない" {
-    const allocator = std.testing.allocator;
-    var path = "relative/old.md".*;
-    const documents = [_]search.Document{.{ .path = &path, .text = "saved body" }};
-    var index = try search.Index.init(allocator, &documents);
-    defer index.deinit();
-    const encoded = try storage.encode(allocator, &index);
-    defer allocator.free(encoded);
-    @memcpy(&path, "relative/new.md");
-    var stored = try storage.decode(allocator, encoded);
-    defer stored.deinit();
-    var old = try frontmatter.Filter.init(allocator, "file:/path", "\"relative/old.md\"");
-    defer old.deinit(allocator);
-    var changed = try frontmatter.Filter.init(allocator, "file:/path", "\"relative/new.md\"");
-    defer changed.deinit(allocator);
-    const parsed: Arguments = .{ .mode = .literal, .input = "", .value = "body" };
-    const found = try findMatches(allocator, &stored.index, &parsed, &.{old}, false, null);
-    defer allocator.free(found);
-    try std.testing.expectEqual(@as(usize, 1), found.len);
-    const absent = try findMatches(allocator, &stored.index, &parsed, &.{changed}, false, null);
-    defer allocator.free(absent);
-    try std.testing.expectEqual(@as(usize, 0), absent.len);
 }
 
 // 各バイトを最大6バイトへescapeし、パス中の制御文字を端末へ直接送らない。

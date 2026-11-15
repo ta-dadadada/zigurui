@@ -77,8 +77,8 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 - `src/storage.zig`: v2読取互換・v3の差分可変長ID形式の符号化・復号・検査
 - `src/incremental.zig`: 未変更文書のpostings再利用と追加・変更・削除の反映
 - `src/ranking.zig`: 保存原文から見出し一致を判定し、一致済み結果だけを並べ替える
-- `src/relevance.zig`: field・重みの意味的検証と一致済み文書の採点・説明内訳。JSON境界の検証はconfig、表示はmainが担当する
-- `src/relevance.zig`: field別coverage・全出現の近接と説明可能な採点。契約と評価は[relevanceの設計・検証](relevance-ranking.md)
+- `src/query.zig`: CLI非依存の検索条件、投影・候補検索・位置復元・順位の組み立てと結果の一括解放
+- `src/relevance.zig`: field・重みの意味的検証、coverage・近接の採点と説明内訳。契約と評価は[relevanceの設計・検証](relevance-ranking.md)
 - `src/update.zig`: 実行中の管理済みバイナリの更新を組み込みインストーラへ委譲
 - `src/config.zig`: JSON設定の読み込み・検証と設定内の相対索引パス解決
 - `src/paths.zig`: XDG保存先の解決

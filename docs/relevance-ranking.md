@@ -6,7 +6,7 @@
 
 検索集合・原文のUTF-8バイト位置・抜粋・v2/v3読取・v3保存は維持する。既定path、既存heading（二値、同点path）を維持し、新しい `--rank relevance` だけが採点する。`--explain` はrelevanceでのみ使用する別のJSON出力契約。通常表示と同じ一度の採点結果を使い、1件でも採点する。合計降順、同点は保存パスのUTF-8バイト順。
 
-順位規則と結果の所有者は新しいrelevanceモジュール、既存rankingはheadingの所有者、frontmatterは型と文字列抽出の所有者、configはJSON境界、mainは呼出と表示を所有する。searchの準備済み語句共有APIのみ追加し、候補探索アルゴリズム/storageは変更しない方針。既存の一致済み再順位付けと診断経路はFollow、設定と表示をAdapt、候補拡大・保存変更は採用しない。変更軸は利用者のfield設定と採点信号であり、前者はデータで表し、プラグイン等の汎用抽象化は追加しない。
+順位規則と採点内訳はrelevance、既存rankingはheading、frontmatterは型と文字列抽出、configはJSON境界を所有する。queryはCLI非依存の検索条件を受け取り、投影・候補検索・原文位置の復元・順位を組み立て、matchesと任意の採点内訳を一つのResultとして所有する。mainはCLIと入出力・表示を担当する。Resultは文書・設定を借用し、借用元より先にdeinitする。searchの準備済み語句共有APIのみ追加し、候補探索アルゴリズム/storageは変更しない方針。既存の一致済み再順位付けと診断経路はFollow、設定と表示をAdapt、候補拡大・保存変更は採用しない。変更軸は利用者のfield設定と採点信号であり、前者はデータで表し、プラグイン等の汎用抽象化は追加しない。
 
 ## 採点 v1
 
@@ -64,7 +64,7 @@ ReleaseFast通常版と計装版を逐次ビルドし、他の担当内ビルド
 | 長文 | 1 | 12.78 | 12.00 | 7749632 |
 | 多数配列 | 4 | 6.76 | 5.76 | 3670016 |
 
-通常版のwall/CPU/RSSと、計装版のfield_extract/field_normalize/scoring/proximity/rank_sortを分離して記録する。計装schemaは3で、既存readerは1/2も引き続き読む。計装の区間集計は排他的で内容・検索語・パスを含まない。
+通常版のwall/CPU/RSSと、計装版のfield_extract/field_normalize/scoring/proximity/rank_sortを分離して記録する。計装schemaは3で、既存readerは1/2も引き続き読む。計装の区間集計は排他的で内容・検索語・パスを含まない。query導入後は説明内訳の解放もResultのcleanupに含め、reportより前に完了させる。導入前の上表はその解放費用を含まないため、内訳を直接比較しない。
 
 ## 再実行
 
