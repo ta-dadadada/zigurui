@@ -95,3 +95,24 @@ runnerは新規run-idだけを受け付け、文書・索引・診断を削除�
 raw、ビルドのprovenance、基準のnormalizerへ戻す逆差分とハッシュ検証はローカル記録に保持した。逆差分は作業ツリーへ適用せず、候補文字列へメモリ上で適用して基準のソースハッシュと一致させた。公開要約は固定項目のみを投影し、端末情報、絶対パス、variant自由名を含まない。rawと公開要約の対応ハッシュ、各実行ファイルとrunnerのハッシュも記録した。
 
 基準は未コミットの計測導入状態なので、公開要約のハッシュだけから基準ソース全体を再構成することはできない。再実行には、ローカルで保持した基準バイナリまたは対応する計測導入状態と逆差分が必要。実KB評価、別環境での再実行、負荷を統制した性能比較は未実施である。
+
+## 見出し優先の計測対応
+
+現在のrunnerは `--rank path|heading` を受け付ける。指定なしはpathで、旧CLIとの比較を維持するためrank引数を渡さない。headingでは全variantのsearch/scanへ `--rank heading` を渡す。indexには渡さない。pathとheadingを比較する場合は、同じバイナリ・seed・文書数で別runを作る。異なるrank条件を1つのrunへ混在させない。
+
+合成生成器v2は文書の半数に `# ガラス` または `# ｶﾞﾗｽ` を追加し、生成時の見出し文字列をmanifestへ保持する。期待順位はこの既知の文字列から求め、ZigのMarkdown判定をPythonへ複製しない。見出し構文全般の正しさはランキングの機能テストで確認する。以前の生成器v1とは本文・容量が異なるため、過去の測定値と直接比較しない。
+
+profileビルドのJSON schema 2には `ranking` 区間がある。検索・絞り込み・位置復元後の見出し照合、必要な正規化、一時メモリ、並べ替えを含み、出力・抜粋作成は含まない。既定pathではこの区間は0。schema 1を読む場合は区間自体が未計測なので、公開用要約のrankingはnullとなり、0とは区別する。通常ビルドでは計測JSONも時計操作も追加しない。
+
+runnerはschema 1と2のキー集合を別々に検証する。順位・原文行番号は独立oracle、全文出力はsearch/scan・variant・計測有無の一致で確認する。CLI設定はrun内のXDGディレクトリへ隔離する。専用profileの内訳と通常CLIのwall/RSSを別に記録し、内訳から通常版の速度を推定しない。
+
+```sh
+# 動作確認専用。少数回の値を性能改善の根拠にはしない。
+python3 -B scripts/benchmark_normalized.py \
+  --run-id heading-smoke-01 --rank heading \
+  --variant candidate .local/benchmarks/candidate-plain/bin/zigurui .local/benchmarks/candidate-profile/bin/zigurui \
+  --size 6 --seed 20261114 --index-repeats 1 --warmups 0 --repeats 1 \
+  --require-index-identity
+```
+
+保存形式が異なる比較では `--require-index-identity` を外し、異形式のcross-readがskipされることを確認する。見出し優先と保存形式変更の性能差は別実験に分ける。ホスト負荷を統制できない実行は引き続きスモークとし、実KB品質や高速化の主張には使わない。

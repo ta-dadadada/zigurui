@@ -26,6 +26,7 @@ PHASES = (
     "read", "checksum", "decode", "query_prepare", "candidates", "span_transform",
     "index_of", "original_span", "output", "cleanup", "other",
 )
+RANKING_PHASE = "ranking"
 COUNTS = (
     "shortest_posting_count", "candidate_count", "documents_verified", "hit_count",
     "normalized_document_count", "normalized_input_bytes", "span_points_visited",
@@ -60,24 +61,30 @@ def corpus(root, size, seed):
     digest = hashlib.sha256()
     for number, document in enumerate(manifest["documents"]):
         path = root / "documents" / document["path"]
-        text = path.read_text(encoding="utf-8") + "\nガラス ｶﾞﾗｽ\n東京と京駅と駅前\n"
+        original = path.read_text(encoding="utf-8")
+        headings = [original.split("\n", 1)[0][2:]]
+        text = original + "\nガラス ｶﾞﾗｽ\n東京と京駅と駅前\n"
         if number == 0:
             text += "希少ｶﾞﾗｽ記録 Ω\n"
+        if number % 2 == 1:
+            heading = "ガラス" if number % 4 == 1 else "ｶﾞﾗｽ"
+            headings.append(heading)
+            text += "# " + heading + "\n"
         data = text.encode("utf-8")
         path.write_bytes(data)
         texts[document["path"]] = text
-        document.update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+        document.update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest(), headings=headings)
         digest.update(document["path"].encode("utf-8") + b"\x00" + data + b"\x00")
     manifest.update(
-        generator="zigurui-normalized-synthetic-v1", total_bytes=sum(d["bytes"] for d in manifest["documents"]),
+        generator="zigurui-normalized-synthetic-v2", total_bytes=sum(d["bytes"] for d in manifest["documents"]),
         corpus_sha256=digest.hexdigest(), queries=list(QUERIES),
-        quality_scope="固定した選択性と連続部分一致の正しさ。実ノートの品質やランキングは評価しない。",
+        quality_scope="固定した選択性と連続部分一致の正しさ。既知の見出しで順位を照合する。実ノートの品質は評価しない。",
     )
     (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return manifest, texts
 
 
-def expected_hits(texts, query, mode):
+def expected_hits(texts, query, mode, headings=None):
     """検索語は改行を含まない。原文の各行を変換し、原文の行番号を返す。"""
     if "\n" in query:
         raise ValueError("the performance oracle requires a query without newlines")
@@ -90,6 +97,9 @@ def expected_hits(texts, query, mode):
             if needle in transform(line, mode):
                 hits.append((path, line_number))
                 break
+    if headings is not None:
+        # Markdownを再解析せず、生成時に確定した見出し文字列から独立に順位を求める。
+        hits.sort(key=lambda hit: (not any(needle in transform(h, mode) for h in headings[hit[0]]), hit[0]))
     return hits
 
 
@@ -131,10 +141,14 @@ def parse_profile(stderr, command, mode):
         raise ValueError("profile output must contain exactly one JSON line")
     profile = json.loads(rows[0])
     if any(profile.get(key) != expected for key, expected in (
-        ("schema_version", 1), ("profile", True), ("command", command), ("mode", mode), ("status", "ok"),
+        ("profile", True), ("command", command), ("mode", mode), ("status", "ok"),
     )):
         raise ValueError("unexpected profile metadata")
-    for category, names in (("timings_ns", PHASES), ("counts", COUNTS)):
+    schema = profile.get("schema_version")
+    if type(schema) is not int or schema not in (1, 2):
+        raise ValueError("unexpected profile schema")
+    phases = PHASES if schema == 1 else (*PHASES, RANKING_PHASE)
+    for category, names in (("timings_ns", phases), ("counts", COUNTS)):
         if set(profile[category]) != set(names):
             raise ValueError(f"unexpected {category} keys")
         if any(type(profile[category][name]) is not int or profile[category][name] < 0 for name in names):
@@ -254,7 +268,7 @@ def index_identity(indices, required):
     return {"required": required, "groups": groups}
 
 
-def verify_cross_read(variants, index_paths, indices, texts, documents, invoke):
+def verify_cross_read(variants, index_paths, indices, texts, documents, invoke, headings=None):
     """同形式の別variantが作成した索引を両方向に読み、独立oracleへ照合する。"""
     versions = {(item["variant_id"], item["mode"]): item["format_version"] for item in indices if item["instrumentation"] == "plain"}
     cases = []
@@ -272,7 +286,7 @@ def verify_cross_read(variants, index_paths, indices, texts, documents, invoke):
                 for query in QUERIES:
                     index = index_paths[source["name"], index_mode, "plain"]
                     _, _, stdout = invoke(target["plain"], "search", configuration["query_mode"], index, query["text"], capture=True)
-                    if parse_hits(stdout, documents) != expected_hits(texts, query["text"], configuration["query_mode"]):
+                    if parse_hits(stdout, documents) != expected_hits(texts, query["text"], configuration["query_mode"], headings):
                         raise ValueError("cross-variant index read differs from independent oracle")
                     own_key = target_id, configuration["id"], query["id"]
                     if own_key not in own_outputs:
@@ -303,6 +317,7 @@ def project(raw):
         "correctness_passed": raw["verification"]["passed"], "position_excerpt_passed": raw["positions"]["passed"],
         "binary_unchanged": raw["binary_unchanged"], "variants": [], "results": [],
     }
+    output["configuration"]["rank"] = raw["configuration"].get("rank", "path")
     output["index_identity"] = {
         "required": raw["index_identity"]["required"],
         "groups": [{"mode": group["mode"], "identical": group["identical"], "indices": [
@@ -323,6 +338,8 @@ def project(raw):
         item["plain"] = benchmark.summarize(record["plain"]["samples"])
         item["profile"] = benchmark.summarize(record["profile"]["samples"])
         item["profile_timings_ns"] = {phase: numeric_summary([sample["profile"]["timings_ns"][phase] for sample in record["profile"]["samples"]]) for phase in PHASES}
+        ranking_samples = [sample["profile"]["timings_ns"].get(RANKING_PHASE) for sample in record["profile"]["samples"]]
+        item["profile_timings_ns"][RANKING_PHASE] = numeric_summary(ranking_samples) if all(value is not None for value in ranking_samples) else None
         item["profile_total_ns"] = numeric_summary([sample["profile"]["total_ns"] for sample in record["profile"]["samples"]])
         item["profile_counts"] = {name: numeric_summary([sample["profile"]["counts"][name] for sample in record["profile"]["samples"]]) for name in COUNTS}
         output["results"].append(item)
@@ -346,7 +363,7 @@ def run(args):
     provenance = dict(item.split("=", 1) for item in args.provenance)
     raw = {
         "schema_version": 1, "status": "running", "started_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "configuration": {"document_count": args.size, "seed": args.seed, "index_repeats": args.index_repeats, "repeats": args.repeats, "warmups": args.warmups},
+        "configuration": {"document_count": args.size, "seed": args.seed, "index_repeats": args.index_repeats, "repeats": args.repeats, "warmups": args.warmups, "rank": args.rank},
         "measurement_scope": "synthetic-smoke; CLI wall includes launch/I/O/output; warm cache; no host-wide load control; profile phases are separate from uninstrumented CLI samples",
         "environment": {"python": sys.version, "python_unicode_version": unicodedata.unidata_version, "current_checkout": benchmark.environment(variants[0]["plain"])},
         "variants": [], "indices": [], "verification": {"passed": False}, "results": [],
@@ -357,11 +374,13 @@ def run(args):
     raw["environment"]["current_source_sha256"] = {str(path.relative_to(REPOSITORY)): benchmark.file_hash(path) for path in source_paths}
     raw["environment"]["runner_sha256"] = {str(path.relative_to(REPOSITORY)): benchmark.file_hash(path) for path in (Path(__file__), Path(benchmark.__file__), Path(benchmark_corpus.__file__))}
     order = 0
+    env = dict(os.environ, XDG_CONFIG_HOME=str(run_dir / "config"), XDG_DATA_HOME=str(run_dir / "data"))
 
     def invoke(binary, command, mode, target, value, capture=False):
         nonlocal order
         path = run_dir / "diagnostics" / f"{order:06d}.stderr"
-        sample, diagnostic, stdout = execute([binary, command, "--mode", mode, target, value], path, args.timeout, capture)
+        rank_args = ["--rank", "heading"] if command in ("search", "scan") and args.rank == "heading" else []
+        sample, diagnostic, stdout = execute([binary, command, "--mode", mode, *rank_args, target, value], path, args.timeout, capture, env=env)
         sample["order"] = order
         order += 1
         return sample, diagnostic, stdout
@@ -382,6 +401,7 @@ def run(args):
             })
         manifest, texts = corpus(run_dir / "corpus", args.size, args.seed)
         raw["corpus"] = manifest
+        headings = {item["path"]: item["headings"] for item in manifest["documents"]} if args.rank == "heading" else None
         documents = run_dir / "corpus" / "documents"
         index_paths = {}
         for variant_id, variant in enumerate(variants):
@@ -402,7 +422,7 @@ def run(args):
                                            "format_version": int.from_bytes(header[8:12], "little"), "index_sha256": benchmark.file_hash(path)})
                     index_paths[variant["name"], mode, instrumentation] = path
         raw["index_identity"] = index_identity(raw["indices"], args.require_index_identity)
-        raw["cross_read"] = verify_cross_read(variants, index_paths, raw["indices"], texts, documents, invoke)
+        raw["cross_read"] = verify_cross_read(variants, index_paths, raw["indices"], texts, documents, invoke, headings)
         raw["positions"] = verify_positions(run_dir, variants, invoke)
         verification_cases = []
         extra_queries = [{"id": "short-after-normalization", "text": "ｶﾞ"}, {"id": "folded-one", "text": "ω"}]
@@ -410,7 +430,7 @@ def run(args):
         all_queries = [*QUERIES, *extra_queries, *regression_queries]
         for configuration in CONFIGURATIONS:
             for query in all_queries:
-                expected = expected_hits(texts, query["text"], configuration["query_mode"])
+                expected = expected_hits(texts, query["text"], configuration["query_mode"], headings)
                 first_stdout = None
                 for variant in variants:
                     for instrumentation in ("plain", "profile"):
@@ -432,7 +452,7 @@ def run(args):
                             raise ValueError("variant or instrumentation changes stdout")
                 verification_cases.append({"configuration_id": configuration["id"], "query_id": query["id"], "hit_count": len(expected), "passed": True})
         raw["verification"] = {"passed": True, "cases": verification_cases,
-                               "method": "independent per-original-line Python NFKC/casefold/NFKC oracle, full stdout equality across search/scan/variant/instrumentation, and independent gram/candidate counts"}
+                               "method": "independent per-original-line Python NFKC/casefold/NFKC oracle, full stdout equality across search/scan/variant/instrumentation, independent generated-heading order, and independent gram/candidate counts"}
         for variant_id, variant in enumerate(variants):
             for configuration in CONFIGURATIONS:
                 for query in QUERIES:
@@ -495,6 +515,7 @@ def arguments(argv=None):
     parser.add_argument("--provenance", action="append", default=[], metavar="NAME=JSON")
     parser.add_argument("--output-root", type=Path, default=REPOSITORY / ".local/benchmarks")
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--rank", choices=("path", "heading"), default="path", help="全variantの検索順。pathは旧CLI対応のためフラグを渡さない")
     parser.add_argument("--size", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=benchmark_corpus.DEFAULT_SEED)
     parser.add_argument("--index-repeats", type=int, default=3)

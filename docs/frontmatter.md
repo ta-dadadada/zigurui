@@ -27,7 +27,7 @@ zigurui scan --mode normalized --all --frontmatter --where /tags '"技術"' --wh
 
 ファイル情報は常にstringで、文字列の完全一致だけを行う。大小文字・Unicode・全角半角を変換せず、本文の `--mode normalized` にも影響されない。非string条件は型不一致となり0件になる。未知の `file:` selectorは `InvalidFilter`。同じファイル名が複数あればすべてが候補となる。部分一致やglobは扱わない。
 
-`search` は保存snapshotのパスを使い、現在のファイルシステムを再確認しない。通常のCLI索引は絶対パスを保存する。v2には収集rootがないため相対パスを推測せず、既存索引に相対パスが入っていてもその文字列を使う。`scan` は今回収集した文書のパスを使う。YAMLの `/file/name` や `/file:~1name` は組み込み項目と衝突しない。
+`search` は保存snapshotのパスを使い、現在のファイルシステムを再確認しない。通常のCLI索引は絶対パスを保存する。収集rootからの相対パスを推測せず、既存索引に相対パスが入っていてもその文字列を使う。`scan` は今回収集した文書のパスを使う。YAMLの `/file/name` や `/file:~1name` は組み込み項目と衝突しない。
 
 キー名とmetadata値には本文検索のUnicode正規化を適用しない。
 
@@ -98,7 +98,7 @@ zigurui: frontmatter: InvalidFrontmatter: file="/notes/broken.md"
 
 ## 索引・位置・実装
 
-保存形式v2には原文全体と従来のpostingsを保持し、metadataや派生スキーマは保存しない。`--frontmatter` を明示した検索では全headerを解析し、文書ごとのmetadataを解放した後、本文の借用slice・原文開始位置・filter適合maskだけを持つ。毎回のheader解析と文書数分の作業領域が必要になる。ファイル条件だけの場合は原文sliceと開始位置0を使い、YAML解析を省く。どちらも文書IDを変更せずmaskで絞り込む。
+索引には原文全体とpostingsを保持し、metadataや派生スキーマは保存しない。`--frontmatter` を明示した検索では全headerを解析し、文書ごとのmetadataを解放した後、本文の借用slice・原文開始位置・filter適合maskだけを持つ。毎回のheader解析と文書数分の作業領域が必要になる。ファイル条件だけの場合は原文sliceと開始位置0を使い、YAML解析を省く。どちらも文書IDを変更せずmaskで絞り込む。
 
 元のpostingsは本文検索より広い候補を返す。metadataだけのgramも候補になるが、filter適合文書の本文で連続一致を再確認するため結果には残らない。短語の全文走査でも同じmaskと本文を使う。原文開始位置を一致区間の両端へ足し、表示には元の文書を使うため、行番号・抜粋・ANDの代表位置は原文に対応する。headerと本文の間の改行は正規化で消さない。
 

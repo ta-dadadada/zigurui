@@ -5,6 +5,8 @@ const std = @import("std");
 const profile = @import("profile.zig");
 const search = @import("search.zig");
 const storage = @import("storage.zig");
+const incremental = @import("incremental.zig");
+const ranking = @import("ranking.zig");
 const frontmatter = @import("frontmatter.zig");
 const Paths = @import("paths.zig").Paths;
 const configuration = @import("config.zig");
@@ -16,13 +18,14 @@ const max_index_bytes = 1024 * 1024 * 1024;
 const help =
     \\zigurui - ローカルMarkdown検索
     \\
-    \\  zigurui index [--mode literal|normalized] <directory> [<index-file>]
+    \\  zigurui index [--mode literal|normalized] [--incremental] <directory> [<index-file>]
     \\  zigurui search [--mode literal|normalized] [<index-file>] <query>
     \\  zigurui scan [--mode literal|normalized] <directory> <query>
     \\  zigurui search [--mode literal|normalized] --all <index-file> <term>...
     \\  zigurui scan [--mode literal|normalized] --all <directory> <term>...
     \\  zigurui schema <index-file>
     \\  search/scanの入力前: [--frontmatter] [--where <selector> <JSON-scalar>]...
+    \\  search/scanの入力前: [--rank path|heading]（既定path、見出し一致を優先）
     \\  zigurui help
     \\  zigurui paths
     \\  zigurui version / --version
@@ -34,6 +37,7 @@ const help =
     \\--frontmatterは本文だけを検索する。--whereはYAMLキーやfile:/name・file:/pathで絞る。
     \\normalized検索には同じmodeで構築した索引が必要。literalは両索引で使える。
     \\searchは保存時点の文書を検索する。変更後はindexを再実行する。
+    \\--incrementalは同じ文書ディレクトリとmodeの索引を差分更新する。通常indexは全再構築する。
     \\索引ファイルにはMarkdown以外の拡張子を使用する。
     \\設定はXDG_CONFIG_HOME/zigurui/config.jsonから読み、CLI指定を優先する。
     \\設定なしの既定はliteralとXDG_DATA_HOME/zigurui/default.idx（pathsで確認）。
@@ -49,6 +53,8 @@ pub fn main(init: std.process.Init) void {
         if (reported) std.process.exit(1);
         const hint: []const u8 = switch (err) {
             error.UnsupportedVersion, error.UnsupportedSearchProfile, error.IndexModeMismatch => " (index --modeで索引を再構築してください)",
+            error.IncrementalNeedsRebuild => " (差分更新の導入には通常のindexで再構築してください)",
+            error.SourceRootMismatch => " (索引作成時と同じ文書ディレクトリを指定してください)",
             error.NormalizationTooLarge => " (非ASCIIの正規化は各中間表現4,194,304コードポイントまでです)",
             error.HomeDirectoryUnavailable => " (絶対パスのHOMEまたは各XDG_*_HOMEを設定してください)",
             error.UnsupportedUpdateLocation => " (この配置先はupdateの対象外です。導入元の管理方法で更新してください)",
@@ -117,20 +123,37 @@ fn run(init: std.process.Init, reported: *bool, config_diagnostic: *?[]const u8)
         if (config_file) |path| {
             if (try isConfigFile(allocator, init.io, path, value)) return error.ConfigFileIsIndex;
         }
-        const documents = try loadCorpus(allocator, init.io, input);
-        // 索引は文書を借用するため、arena内の本文は検索・符号化が終わるまで保持する。
-        var index = try search.Index.initMode(init.gpa, documents, mode);
+        const root = try std.Io.Dir.cwd().realPathFileAlloc(init.io, input, allocator);
+        var changes: ?incremental.Changes = null;
+        // rootとmodeを確認してから現在文書を読む。旧形式を暗黙に変換しない。
+        var index = if (arguments.incremental) blk: {
+            const old_bytes = try std.Io.Dir.cwd().readFileAlloc(init.io, value, init.gpa, .limited(max_index_bytes));
+            var old = try storage.decodeOwned(init.gpa, old_bytes);
+            defer old.deinit();
+            const old_root = old.source_root orelse return error.IncrementalNeedsRebuild;
+            if (!std.mem.eql(u8, old_root, root)) return error.SourceRootMismatch;
+            if (old.index.mode != mode) return error.IndexModeMismatch;
+            const documents = try loadCorpus(allocator, init.io, root);
+            const result = try incremental.reconcile(init.gpa, &old.index, documents);
+            changes = result.changes;
+            if (result.index) |changed_index| break :blk changed_index;
+            // 完全一致でも旧索引の検証と全文書の読取は完了している。
+            // 出力に失敗しても既存の索引ファイルには一切書き込まない。
+            const message = try indexMessage(allocator, old.index.documents.len, result.changes);
+            try std.Io.File.stdout().writeStreamingAll(init.io, message);
+            succeeded = true;
+            return;
+        } else try search.Index.initMode(init.gpa, try loadCorpus(allocator, init.io, root), mode);
         defer index.deinit();
-        const bytes = try storage.encode(allocator, &index);
+        const bytes = try storage.encodeWithRoot(allocator, &index, root);
         if (bytes.len >= max_index_bytes) return error.IndexTooLarge;
+        // 保存成功後にメモリ確保で失敗しないよう、完了表示も先に用意する。
+        const message = try indexMessage(allocator, index.documents.len, changes);
         if (default_index != null) try std.Io.Dir.cwd().createDirPath(init.io, std.fs.path.dirname(value).?);
         // 書き込みと同期が成功してから置き換え、途中の失敗で既存索引を壊さない。
         var atomic = try std.Io.Dir.cwd().createFileAtomic(init.io, value, .{ .replace = true });
         defer atomic.deinit(init.io);
-        try atomic.file.writeStreamingAll(init.io, bytes);
-        try atomic.file.sync(init.io);
-        try atomic.replace(init.io);
-        const message = try std.fmt.allocPrint(allocator, "{d} documents indexed\n", .{documents.len});
+        try commitIndex(&atomic, init.io, bytes);
         try std.Io.File.stdout().writeStreamingAll(init.io, message);
     } else if (std.mem.eql(u8, args[1], "search") or std.mem.eql(u8, args[1], "schema")) {
         const bytes = blk: {
@@ -191,9 +214,12 @@ const Arguments = struct {
     mode: search.Mode,
     mode_specified: bool = false,
     default_index: bool = false,
+    incremental: bool = false,
     input: []const u8,
     value: []const u8 = "",
     all: bool = false,
+    rank: ranking.Order = .path,
+    rank_specified: bool = false,
     terms: []const []const u8 = &.{},
     frontmatter: bool = false,
     where: [frontmatter.max_filters]Where = undefined,
@@ -208,7 +234,7 @@ fn parseArguments(args: []const []const u8) !Arguments {
         return .{ .mode = .literal, .input = args[2] };
     }
     // 従来の入力名--modeは維持し、新しい明示オプションだけを予約する。
-    if (args.len == 4 and !std.mem.eql(u8, args[2], "--all") and !std.mem.eql(u8, args[2], "--frontmatter") and !std.mem.eql(u8, args[2], "--where"))
+    if (args.len == 4 and !std.mem.eql(u8, args[2], "--all") and !std.mem.eql(u8, args[2], "--frontmatter") and !std.mem.eql(u8, args[2], "--where") and !std.mem.eql(u8, args[2], "--incremental") and !std.mem.eql(u8, args[2], "--rank"))
         return .{ .mode = .literal, .input = args[2], .value = args[3], .terms = args[3..] };
     var position: usize = 2;
     var parsed: Arguments = .{ .mode = .literal, .input = "" };
@@ -220,7 +246,11 @@ fn parseArguments(args: []const []const u8) !Arguments {
     }
     while (position < args.len) {
         const option = args[position];
-        if (std.mem.eql(u8, option, "--all")) {
+        if (std.mem.eql(u8, option, "--incremental")) {
+            if (parsed.incremental or !std.mem.eql(u8, args[1], "index")) return error.InvalidArguments;
+            parsed.incremental = true;
+            position += 1;
+        } else if (std.mem.eql(u8, option, "--all")) {
             if (parsed.all) return error.InvalidArguments;
             parsed.all = true;
             position += 1;
@@ -228,6 +258,11 @@ fn parseArguments(args: []const []const u8) !Arguments {
             if (parsed.frontmatter) return error.InvalidArguments;
             parsed.frontmatter = true;
             position += 1;
+        } else if (std.mem.eql(u8, option, "--rank")) {
+            if (parsed.rank_specified or args.len <= position + 1) return error.InvalidArguments;
+            parsed.rank = std.meta.stringToEnum(ranking.Order, args[position + 1]) orelse return error.InvalidArguments;
+            parsed.rank_specified = true;
+            position += 2;
         } else if (std.mem.eql(u8, option, "--where")) {
             if (args.len <= position + 2) return error.InvalidArguments;
             if (parsed.where_count == frontmatter.max_filters) return error.InvalidFilter;
@@ -236,7 +271,7 @@ fn parseArguments(args: []const []const u8) !Arguments {
             position += 3;
         } else break;
     }
-    if ((parsed.all or parsed.frontmatter or parsed.where_count != 0) and !std.mem.eql(u8, args[1], "search") and !std.mem.eql(u8, args[1], "scan")) return error.InvalidArguments;
+    if ((parsed.all or parsed.frontmatter or parsed.where_count != 0 or parsed.rank_specified) and !std.mem.eql(u8, args[1], "search") and !std.mem.eql(u8, args[1], "scan")) return error.InvalidArguments;
     for (parsed.where[0..parsed.where_count]) |condition| {
         if (try frontmatter.selectorKind(condition.pointer) == .metadata and !parsed.frontmatter) return error.InvalidArguments;
     }
@@ -280,7 +315,9 @@ fn findMatches(allocator: std.mem.Allocator, index: *const search.Index, parsed:
         (if (parsed.all) try projected.scanAll(allocator, parsed.terms, parsed.mode) else try projected.scanMode(allocator, parsed.value, parsed.mode))
     else
         (if (parsed.all) try projected.searchAll(allocator, parsed.terms, parsed.mode) else try projected.searchMode(allocator, parsed.value, parsed.mode));
+    errdefer allocator.free(matches);
     if (projection) |value| value.restore(matches);
+    if (parsed.rank == .heading) try ranking.sort(allocator, index.documents, matches, parsed.terms, parsed.mode);
     return matches;
 }
 
@@ -375,6 +412,7 @@ test "抜粋はUTF-8境界を保ち制御文字を除去する" {
 }
 
 test {
+    _ = incremental;
     _ = search;
     _ = storage;
     _ = @import("normalize.zig");
@@ -590,4 +628,71 @@ test "diagnostic path escapes terminal control bytes" {
     try std.testing.expectEqualStrings("\\u007f", escapedPathByte(0x7f, &buffer));
     try std.testing.expectEqualStrings("\\\"", escapedPathByte('"', &buffer));
     try std.testing.expectEqualStrings("\\\\", escapedPathByte('\\', &buffer));
+}
+
+test "差分更新はindexでのみ明示し既定索引も使える" {
+    const explicit = try parseArguments(&.{ "zigurui", "index", "--mode", "normalized", "--incremental", "notes", "notes.idx" });
+    try std.testing.expect(explicit.incremental);
+    try std.testing.expectEqual(search.Mode.normalized, explicit.mode);
+    const implicit = try parseArguments(&.{ "zigurui", "index", "--incremental", "notes" });
+    try std.testing.expect(implicit.incremental and implicit.default_index);
+    try std.testing.expectError(error.InvalidArguments, parseArguments(&.{ "zigurui", "search", "--incremental", "notes.idx", "語" }));
+    try std.testing.expectError(error.InvalidArguments, parseArguments(&.{ "zigurui", "index", "--incremental", "--incremental", "notes" }));
+}
+
+// 保存の順序を一か所に置き、各段階の失敗を同じ経路で検証する。
+fn commitIndex(atomic: anytype, io: std.Io, bytes: []const u8) !void {
+    try atomic.file.writeStreamingAll(io, bytes);
+    try atomic.file.sync(io);
+    try atomic.replace(io);
+}
+
+test "書込同期置換の各失敗で旧索引の公開状態を保持する" {
+    const Fake = struct {
+        const Phase = enum { write, sync, replace, success };
+        const State = struct { failure: Phase, staging_bytes: usize = 0, synced: bool = false, replaced: bool = false };
+        const File = struct {
+            state: *State,
+            fn writeStreamingAll(file: @This(), _: std.Io, bytes: []const u8) !void {
+                file.state.staging_bytes = @min(3, bytes.len);
+                if (file.state.failure == .write) return error.InjectedFailure;
+                file.state.staging_bytes = bytes.len;
+            }
+            fn sync(file: @This(), _: std.Io) !void {
+                if (file.state.failure == .sync) return error.InjectedFailure;
+                file.state.synced = true;
+            }
+        };
+        file: File,
+        fn replace(atomic: *@This(), _: std.Io) !void {
+            if (!atomic.file.state.synced) return error.NotSynced;
+            if (atomic.file.state.failure == .replace) return error.InjectedFailure;
+            atomic.file.state.replaced = true;
+        }
+    };
+    for ([_]Fake.Phase{ .write, .sync, .replace }) |phase| {
+        var state: Fake.State = .{ .failure = phase };
+        var atomic: Fake = .{ .file = .{ .state = &state } };
+        try std.testing.expectError(error.InjectedFailure, commitIndex(&atomic, std.Io.failing, "new index"));
+        try std.testing.expect(!state.replaced);
+    }
+    var state: Fake.State = .{ .failure = .success };
+    var atomic: Fake = .{ .file = .{ .state = &state } };
+    try commitIndex(&atomic, std.Io.failing, "new index");
+    try std.testing.expect(state.synced and state.replaced);
+}
+
+fn indexMessage(allocator: std.mem.Allocator, count: usize, changes: ?incremental.Changes) ![]u8 {
+    return if (changes) |change|
+        std.fmt.allocPrint(allocator, "{d} documents indexed ({d} added, {d} modified, {d} deleted, {d} unchanged)\n", .{ count, change.added, change.modified, change.deleted, change.unchanged })
+    else
+        std.fmt.allocPrint(allocator, "{d} documents indexed\n", .{count});
+}
+
+test "変更なしでも既存の完了表示を維持し表示の確保失敗を返す" {
+    const a = std.testing.allocator;
+    const message = try indexMessage(a, 3, .{ .unchanged = 3 });
+    defer a.free(message);
+    try std.testing.expectEqualStrings("3 documents indexed (0 added, 0 modified, 0 deleted, 3 unchanged)\n", message);
+    try std.testing.expectError(error.OutOfMemory, indexMessage(std.testing.failing_allocator, 0, .{}));
 }
