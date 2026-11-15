@@ -29,8 +29,8 @@ pub fn load(allocator: std.mem.Allocator, io: std.Io, file: ?[]const u8, diagnos
     };
 }
 
-fn invalid(allocator: std.mem.Allocator, diagnostic: *?[]const u8, path: []const u8, key: []const u8, reason: []const u8) !Config {
-    diagnostic.* = try std.fmt.allocPrint(allocator, "設定 {s}: {s}: {s}", .{ path, key, reason });
+fn invalid(allocator: std.mem.Allocator, diagnostic: *?[]const u8, path: []const u8, key: []const u8, reason: []const u8) error{ OutOfMemory, InvalidConfiguration } {
+    diagnostic.* = std.fmt.allocPrint(allocator, "設定 {s}: {s}: {s}", .{ path, key, reason }) catch return error.OutOfMemory;
     return error.InvalidConfiguration;
 }
 
@@ -49,10 +49,7 @@ fn parse(allocator: std.mem.Allocator, bytes: []const u8, path: []const u8, diag
             continue;
         }
         if (std.mem.eql(u8, key, "relevance")) {
-            config.relevance = parseRelevance(allocator, value) catch |err| {
-                if (err == error.OutOfMemory) return err;
-                return invalid(allocator, diagnostic, path, key, "fieldまたは重みの設定が不正です");
-            };
+            config.relevance = try parseRelevance(allocator, value, path, diagnostic);
             continue;
         }
         if (!std.mem.eql(u8, key, "mode") and !std.mem.eql(u8, key, "index_path")) return invalid(allocator, diagnostic, path, key, "未知のキーです");
@@ -68,39 +65,84 @@ fn parse(allocator: std.mem.Allocator, bytes: []const u8, path: []const u8, diag
     return config;
 }
 
-fn number(value: std.json.Value) !f64 {
+fn number(a: std.mem.Allocator, value: std.json.Value, path: []const u8, diagnostic: *?[]const u8, key: []const u8) !f64 {
     return switch (value) {
         .integer => |v| @floatFromInt(v),
         .float => |v| v,
-        else => error.InvalidRelevanceConfiguration,
+        else => invalid(a, diagnostic, path, key, "数値が必要です"),
     };
 }
-fn parseRelevance(a: std.mem.Allocator, value: std.json.Value) !relevance.Settings {
-    if (value != .object) return error.InvalidRelevanceConfiguration;
+
+fn fieldKey(a: std.mem.Allocator, index: usize, key: ?[]const u8) ![]const u8 {
+    if (key) |property| return std.fmt.allocPrint(a, "relevance.fields[{d}].{s}", .{ index, property });
+    return std.fmt.allocPrint(a, "relevance.fields[{d}]", .{index});
+}
+
+fn parseRelevance(a: std.mem.Allocator, value: std.json.Value, path: []const u8, diagnostic: *?[]const u8) !relevance.Settings {
+    if (value != .object) return invalid(a, diagnostic, path, "relevance", "JSONオブジェクトが必要です");
     var result: relevance.Settings = .{};
     var entries = value.object.iterator();
     while (entries.next()) |entry| {
         const key = entry.key_ptr.*;
         const v = entry.value_ptr.*;
-        if (std.mem.eql(u8, key, "proximity_weight")) result.proximity_weight = try number(v) else if (std.mem.eql(u8, key, "ordered_weight")) result.ordered_weight = try number(v) else if (std.mem.eql(u8, key, "fields")) {
-            if (v != .array or v.array.items.len == 0 or v.array.items.len > relevance.max_fields) return error.InvalidRelevanceConfiguration;
+        if (std.mem.eql(u8, key, "proximity_weight")) {
+            result.proximity_weight = try number(a, v, path, diagnostic, "relevance.proximity_weight");
+        } else if (std.mem.eql(u8, key, "ordered_weight")) {
+            result.ordered_weight = try number(a, v, path, diagnostic, "relevance.ordered_weight");
+        } else if (std.mem.eql(u8, key, "fields")) {
+            if (v != .array) return invalid(a, diagnostic, path, "relevance.fields", "配列が必要です");
+            if (v.array.items.len == 0 or v.array.items.len > relevance.max_fields) return invalid(a, diagnostic, path, "relevance.fields", "fieldは1件以上、上限件数以内で指定してください");
             const fields = try a.alloc(relevance.Field, v.array.items.len);
-            for (v.array.items, fields) |raw, *field| {
-                if (raw != .object) return error.InvalidRelevanceConfiguration;
-                const kind = raw.object.get("kind") orelse return error.InvalidRelevanceConfiguration;
-                if (kind != .string) return error.InvalidRelevanceConfiguration;
-                field.* = .{ .kind = std.meta.stringToEnum(relevance.Kind, kind.string) orelse return error.InvalidRelevanceConfiguration };
+            for (v.array.items, fields, 0..) |raw, *field, i| {
+                if (raw != .object) return invalid(a, diagnostic, path, try fieldKey(a, i, null), "fieldのJSONオブジェクトが必要です");
+                const kind = raw.object.get("kind") orelse return invalid(a, diagnostic, path, try fieldKey(a, i, "kind"), "kindが必要です");
+                if (kind != .string) return invalid(a, diagnostic, path, try fieldKey(a, i, "kind"), "種類名の文字列が必要です");
+                field.* = .{ .kind = std.meta.stringToEnum(relevance.Kind, kind.string) orelse return invalid(a, diagnostic, path, try fieldKey(a, i, "kind"), "body/heading/file_name/metadataを指定してください") };
                 var props = raw.object.iterator();
                 while (props.next()) |prop| {
-                    if (std.mem.eql(u8, prop.key_ptr.*, "weight")) field.weight = try number(prop.value_ptr.*) else if (std.mem.eql(u8, prop.key_ptr.*, "pointer")) {
-                        if (prop.value_ptr.* != .string) return error.InvalidRelevanceConfiguration;
+                    if (std.mem.eql(u8, prop.key_ptr.*, "weight")) {
+                        field.weight = try number(a, prop.value_ptr.*, path, diagnostic, try fieldKey(a, i, "weight"));
+                    } else if (std.mem.eql(u8, prop.key_ptr.*, "pointer")) {
+                        if (prop.value_ptr.* != .string) return invalid(a, diagnostic, path, try fieldKey(a, i, "pointer"), "キー経路の文字列が必要です");
                         field.pointer = prop.value_ptr.string;
-                    } else if (!std.mem.eql(u8, prop.key_ptr.*, "kind")) return error.InvalidRelevanceConfiguration;
+                    } else if (!std.mem.eql(u8, prop.key_ptr.*, "kind")) return invalid(a, diagnostic, path, try fieldKey(a, i, null), "未知のキーです");
                 }
             }
             result.fields = fields;
-        } else return error.InvalidRelevanceConfiguration;
+        } else return invalid(a, diagnostic, path, "relevance", "未知のキーです");
     }
-    try result.validate();
+    if (result.validationIssue()) |issue| {
+        const key = if (issue.field_index) |i| try fieldKey(a, i, issue.key) else try std.fmt.allocPrint(a, "relevance.{s}", .{issue.key});
+        return invalid(a, diagnostic, path, key, issue.reason);
+    }
     return result;
+}
+
+fn exerciseDiagnostics(backing: std.mem.Allocator) !void {
+    var arena = std.heap.ArenaAllocator.init(backing);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var diagnostic: ?[]const u8 = null;
+    const good = try parse(a, "{\"relevance\":{\"fields\":[{\"kind\":\"body\",\"weight\":0}],\"ordered_weight\":100}}", "/config.json", &diagnostic);
+    try good.relevance.validate();
+    const cases = [_]struct { json: []const u8, location: []const u8 }{
+        .{ .json = "{\"relevance\":{\"fields\":[{\"kind\":\"body\",\"weight\":101}]}}", .location = "relevance.fields[0].weight" },
+        .{ .json = "{\"relevance\":{\"fields\":[{\"kind\":\"body\",\"weight\":false}]}}", .location = "relevance.fields[0].weight" },
+        .{ .json = "{\"relevance\":{\"private-sentinel\":\"private-sentinel\"}}", .location = "relevance:" },
+    };
+    for (cases) |case| {
+        diagnostic = null;
+        if (parse(a, case.json, "/config.json", &diagnostic)) |_| {
+            return error.TestUnexpectedResult;
+        } else |err| {
+            if (err != error.InvalidConfiguration) return err;
+        }
+        try std.testing.expect(std.mem.indexOf(u8, diagnostic.?, case.location) != null);
+        try std.testing.expect(std.mem.indexOf(u8, diagnostic.?, "private-sentinel") == null);
+    }
+}
+
+test "設定診断の構造パス・非開示・確保失敗" {
+    try exerciseDiagnostics(std.testing.allocator);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, exerciseDiagnostics, .{});
 }

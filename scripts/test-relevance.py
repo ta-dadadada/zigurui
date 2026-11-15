@@ -152,6 +152,73 @@ def main():
     for raw in ['{"relevance":{"ordered_weight":1e999}}', '{"rank":"path","rank":"relevance"}', '{"relevance":{"fields":[{"kind":"body","weight":1,"weight":2}]}}']:
         cfg.write_text(raw, encoding='utf-8')
         run('scan', notes, 'ガラス', success=False)
+    # 構造パスと理由を示し、入力した値・経路・未知キーを診断へ出さない。
+    secret = 'SYNTHETIC_PRIVATE_SENTINEL'
+    diagnostic_cases = [
+        ({'relevance': []}, 'relevance:', 'JSONオブジェクト'),
+        ({'relevance': {secret: secret}}, 'relevance:', '未知のキー'),
+        ({'relevance': {'fields': {}}}, 'relevance.fields:', '配列'),
+        ({'relevance': {'fields': []}}, 'relevance.fields:', 'fieldは1件以上'),
+        ({'relevance': {'fields': [None]}}, 'fields[0]:', 'JSONオブジェクト'),
+        ({'relevance': {'fields': [{}]}}, 'fields[0].kind:', 'kindが必要'),
+        ({'relevance': {'fields': [{'kind': 1}]}}, 'fields[0].kind:', '文字列'),
+        ({'relevance': {'fields': [{'kind': secret}]}}, 'fields[0].kind:', 'body/heading'),
+        ({'relevance': {'fields': [{'kind': 'body', secret: secret}]}}, 'fields[0]:', '未知のキー'),
+        ({'relevance': {'fields': [{'kind': 'metadata', 'pointer': 1}]}}, 'fields[0].pointer:', '文字列'),
+        ({'relevance': {'fields': [{'kind': 'metadata'}]}}, 'fields[0].pointer:', '必要'),
+        ({'relevance': {'fields': [{'kind': 'metadata', 'pointer': '/' + secret + '~2'}]}}, 'fields[0].pointer:', '有効なmetadata'),
+        ({'relevance': {'fields': [{'kind': 'body', 'pointer': '/' + secret}]}}, 'fields[0].pointer:', '指定できません'),
+        ({'relevance': {'fields': [{'kind': 'body'}, {'kind': 'body'}]}}, 'fields[1].kind:', '重複'),
+        ({'relevance': {'fields': [{'kind': 'body', 'weight': secret}]}}, 'fields[0].weight:', '数値'),
+        ({'relevance': {'fields': [{'kind': 'body'}, {'kind': 'heading', 'weight': 101}]}}, 'fields[1].weight:', '0〜100'),
+        ({'relevance': {'proximity_weight': False}}, 'relevance.proximity_weight:', '数値'),
+        ({'relevance': {'proximity_weight': -1}}, 'relevance.proximity_weight:', '0〜100'),
+        ({'relevance': {'ordered_weight': 101}}, 'relevance.ordered_weight:', '0〜100'),
+    ]
+    for c, location, reason in diagnostic_cases:
+        config(c)
+        r = run('scan', '--rank', 'path', notes, 'ガラス', success=False)
+        message = r.stderr.decode()
+        assert location in message and reason in message, message
+        assert secret not in message, message
+
+    # 設定変更だけで信号を個別停止でき、同じ索引・候補・位置を使える。
+    snapshot = (index.read_bytes(), index.stat().st_mtime_ns)
+    config({})
+    baseline = explain(['ガラス', '断熱'], source=index, command='search')
+    positions = {r['path']: (r['offset'], r['end']) for r in baseline['results']}
+    for proximity, ordered in [(0, 0), (0, 1), (1, 0), (100, 100)]:
+        config({'relevance': {'proximity_weight': proximity, 'ordered_weight': ordered}})
+        data = explain(['ガラス', '断熱'], source=index, command='search')
+        assert data['schema_version'] == baseline['schema_version'] == 1
+        assert data['algorithm'] == baseline['algorithm'] == 'relevance-v1'
+        assert {r['path']: (r['offset'], r['end']) for r in data['results']} == positions
+        for result in data['results']:
+            for score in result['fields']:
+                expected = score['coverage_score'] + proximity * score['weight'] * score['proximity'] + ordered * score['weight'] * score['ordered']
+                assert abs(score['total'] - expected) < 1e-9
+                if proximity == 0:
+                    assert score['proximity_score'] == 0
+                if ordered == 0:
+                    assert score['ordered_score'] == 0
+        normal = run('search', '--mode', 'literal', '--all', '--rank', 'relevance', index, 'ガラス', '断熱').stdout
+        assert [line.split(':', 1)[0] for line in normal.decode().splitlines()] == [r['path'] for r in data['results']]
+    for weight in [0, 100]:
+        config({'relevance': {'fields': [{'kind': 'body', 'weight': weight}], 'proximity_weight': 0, 'ordered_weight': 0}})
+        data = explain(['ガラス', '断熱'], source=index, command='search')
+        assert {r['path']: (r['offset'], r['end']) for r in data['results']} == positions
+        assert all(len(r['fields']) == 1 and r['total'] == weight * r['fields'][0]['coverage'] for r in data['results'])
+        if weight == 0:
+            assert [r['path'] for r in data['results']] == sorted(positions)
+    assert (index.read_bytes(), index.stat().st_mtime_ns) == snapshot
+    # 異なるfieldで件数上限を単独検証し、重複拒否による偽陽性を避ける。
+    maximum_fields = [{'kind': 'metadata', 'pointer': f'/synthetic_{i}', 'weight': 0} for i in range(32)]
+    config({'relevance': {'fields': maximum_fields}})
+    maximum = explain(['Strasse'], 'normalized')
+    assert len(maximum['results']) == 1 and len(maximum['results'][0]['fields']) == 32
+    config({'relevance': {'fields': maximum_fields + [{'kind': 'metadata', 'pointer': '/synthetic_32', 'weight': 0}]}})
+    r = run('scan', '--rank', 'path', notes, 'ガラス', success=False)
+    assert b'relevance.fields:' in r.stderr
     config({})
     path_expected = run('scan', '--rank', 'path', notes, 'ガラス').stdout
     heading_expected = run('scan', '--rank', 'heading', notes, 'ガラス').stdout

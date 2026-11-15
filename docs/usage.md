@@ -94,8 +94,10 @@ zigurui search --mode normalized /path/to/normalized.idx 'ガラス'
 | --- | --- | --- |
 | `index_path` | CLIで索引パスを省略した `index` / `search` の保存先・読込先 | XDGのdata配下の `default.idx` |
 | `mode` | `index` / `search` / `scan` の検索モード。`literal` または `normalized` | `literal` |
+| `rank` | `search` / `scan` の順位。`path` / `heading` / `relevance` | `path` |
+| `relevance` | field・重み・近接信号の[設定](#relevanceの順位と説明を見る)。この項目だけでは順位を有効化しない | 組み込みのfieldと重み |
 
-どちらの項目も省略でき、`{}` も有効。`--all` と `schema` は索引パスの明示を維持し、設定の `index_path` は使用しない。文書ディレクトリと検索語は、その都度CLIの引数で指定する。
+各項目は省略でき、`{}` も有効。`--all` と `schema` は索引パスの明示を維持し、設定の `index_path` は使用しない。文書ディレクトリと検索語は、その都度CLIの引数で指定する。
 
 優先順位は **CLIの明示指定 → 設定ファイル → 未設定時の既定値**。たとえば上の設定では、`zigurui index /path/to/notes` と `zigurui search 'ガラス'` に同じ索引・normalizedが適用される。`zigurui search --mode literal /other/notes.idx '検索'` は両方をCLI指定で上書きする。索引の再構築や変換は自動では行わないので、モードを変更した場合は対応する索引を作成する。
 
@@ -233,28 +235,22 @@ zigurui search --mode normalized --all --rank relevance --explain notes.idx 'ガ
 
 `--explain` はrelevance専用のJSON契約（schema_version=1、algorithm=relevance-v1）。1件でもtotalとfield別内訳を返し、通常表示と順位・集合を共有する。offset/endは原文UTF-8バイト、window/ordered_windowは検索表現のUnicodeコードポイント半開区間で、bodyでは本文先頭、他fieldでは値先頭が0。valueは文字列値の0始まり番号。matched_term_indicesは検索modeで重複排除した入力順の0始まり語句番号。語句やfield値は出さないが、パスや設定の経路は含むため、説明JSONをそのまま公開しない。
 
-設定例（schemaは架空）:
+まず基本機能で対象と条件を決める。表記差には `--mode normalized`、複数の語句には `--all`、本文限定・型付き条件には `--frontmatter` / `--where` を使う。見出し一致を優先するだけなら `--rank heading` で足りる。これらで足りない順位の調整に `relevance` を選ぶ。fieldを追加しても、そのfieldだけに一致する文書が新たな候補になるわけではない。
 
-```json
-{
-  "rank": "relevance",
-  "relevance": {
-    "fields": [
-      {"kind": "body", "weight": 1},
-      {"kind": "heading", "weight": 2},
-      {"kind": "file_name", "weight": 1},
-      {"kind": "metadata", "pointer": "/subject", "weight": 2}
-    ],
-    "proximity_weight": 1,
-    "ordered_weight": 1
-  }
-}
-```
+非公開の比較環境、架空の設定例、一要素ずつの比較、採用と復元の手順は[検索の調整ガイド](search-tuning.md)を参照。
 
 fieldsを省略するとbody=1、heading=2、file_name=1。明示配列は全置換で1〜32件。metadataは任意の配列透過キー経路（既存 `--where` のescape規則）を指定する。title/tags等の固定項目はない。未設定・数値/bool/null・objectは採点せず、配列の各文字列は独立した値として最良の値だけを使う。重みは有限な0〜100で、未知項目・重複field・無効な経路を拒否する。relevance設定だけでは順位を有効にしない。CLIには重み指定を追加せずconfigへ集約する。
+
+調整は一度に一項目ずつ変え、同じ語句・mode・絞り込みで通常表示と `--explain` の `settings`・field別寄与・totalを確認する。例えば `proximity_weight` と `ordered_weight` を両方0にするとcoverageだけになり、片方だけ0ならその信号だけを止められる。既定値が自分の文書群で最適とは限らない。
+
+fieldの `weight: 0` は寄与を0にするが、抽出・正規化・資源上限の検査は残る。処理そのものを避けるには、そのfieldを `fields` 配列から除く（配列は全置換なので残すfieldも列挙する）。全fieldの重み0も有効で同点path順になるが、fieldは1件以上必要。近接重みが両方0の場合は出現探索と出現数上限の検査を省く一方、値のコードポイント上限は残る。
 
 metadataを設定した場合は重み0でも一致済み文書のYAMLを検証する。不正なら診断名と対象パスを返して停止し、部分結果は出さない。非候補は追加解析しない（`--frontmatter` 自体の全体検証は従来どおり）。metadata未設定のpath/heading/relevanceには新しいYAML検証を追加しない。`--where` の型付き完全一致は正規化しない。
 
 coverageは異なる入力語句の一致割合で、反復回数を加算しない。bodyは本文全体、headingは一つのATX見出し、metadataは一つの文字列値で数える。近接は同じfield値に限定し、bodyは同じ物理行に限定する。unorderedは全語句を覆う最短区間、orderedは入力順に開始位置が非減少となる最短区間。別配列要素や別見出しを結合しない。単一引数は従来どおり連続部分一致、複数引数の空白結合を完全語句とは扱わない。
+
+rank・field・重み・絞り込み条件の変更に索引の再構築は不要。保存済み原文へ検索時に反映する。modeをnormalizedへ変える場合はnormalized索引が必要で、literal索引を自動変換しない。`index_path` の変更も索引を移動・変換しない。旧設定は引き続き使えるが、新項目を知らない旧版へ戻す場合は設定も確認する。
+
+不正なrelevance設定は、`relevance.fields[0].weight` のような0始まりの箇所と理由で診断する。入力した値やmetadata経路・未知キーの文字列は診断に含めない。JSON構文や重複キーはJSON解析段階の診断となる。CLIでrankを上書きしても、不正設定を無視しない。
 
 採点式、W-Lが重なりにより隙間を相殺する性質、資源上限と超過時エラー、独立評価と限界は[relevanceの設計・検証](relevance-ranking.md)を参照。
