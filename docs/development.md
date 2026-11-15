@@ -59,7 +59,7 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 
 ### 機能別の独立評価
 
-追加機能の評価ツールと再実行コマンドは次の記録に集約する。通常のCIがこれらをすべて実行するわけではないため、変更した機能に応じて確認する。
+追加機能の評価ツールと再実行コマンドは次の記録に集約する。通常CIはheading・relevance CLIと独立oracle、配布物受入を実行する。他の評価をすべて実行するわけではないため、変更した機能に応じて確認する。
 
 - [正規化検索の性能・正しさ](normalization-performance.md)
 - [AND検索](search-and-evaluation.md)
@@ -93,7 +93,7 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 ## 保守・配布
 
 - [依存更新とセキュリティ検査](security-checks.md): Renovate・Trivyの対象、判定基準、ローカル確認、外部App設定。
-- [プレリリースの配布と検証](releases.md): 配布対象、梱包、公開前の確認と承認。
+- [リリースの配布と検証](releases.md): 配布対象、梱包、公開前の確認と承認。
 - [Unicode依存](../vendor/utf8proc/SOURCE.md) / [YAML依存](../vendor/libyaml/SOURCE.md): 固定版、取得元、ライセンス、更新手順。
 
 ## Codexの役割

@@ -40,6 +40,11 @@ jobs:
       - name: Test heading ranking
         run: python3 scripts/test-ranking.py --output .local/ranking-validation/ci
 
+      - name: Test relevance CLI and independent interval oracle
+        run: |
+          python3 scripts/test-relevance-oracle.py
+          python3 scripts/test-relevance.py --output .local/relevance-validation/ci
+
       - name: Test managed binary update without network access
         run: python3 scripts/test-update.py
 
@@ -67,6 +72,12 @@ jobs:
 
       - name: Test installer without network access
         run: python3 scripts/test-install.py
+
+  distribution:
+    uses: ./.github/workflows/distribution.yml
+    with:
+      # ローカルの版埋込み・梱包試験用。タグやReleaseは作成しない。
+      tag: v0.1.0-rc.1
 
   benchmark:
     runs-on: ubuntu-24.04

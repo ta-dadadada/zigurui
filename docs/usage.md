@@ -6,11 +6,11 @@
 
 macOS arm64・Linux x86_64向けのプレリリースを使用する。Zig・mise・sudoは不要で、curl、tar、SHA-256用のshasumまたはsha256sumが必要。
 
-正式なインストーラURLは [install.sh](https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh)。現インストーラの対応対象は **v0.1.0-alpha.3以降**。公開状況と利用する版は [Releases](https://github.com/ta-dadadada/zigurui/releases) で確認する。以下は `v0.1.0-alpha.3` の導入例。
+正式なインストーラURLは [install.sh](https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh)。現インストーラの対応対象は **v0.1.0-alpha.3以降**。公開状況と利用する版は [Releases](https://github.com/ta-dadadada/zigurui/releases) で確認する。以下は公開済み `v0.1.0-alpha.4` の導入例。RC・stableの公開状況と互換性は[移行表](#版と互換性移行表)を参照。
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh \
-  | sh -s -- --version v0.1.0-alpha.3 --channel prerelease
+  | sh -s -- --version v0.1.0-alpha.4 --channel prerelease
 ```
 
 保存して内容を確認してから実行する場合:
@@ -18,15 +18,15 @@ curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/in
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh -o install.sh
 less install.sh
-sh install.sh --version v0.1.0-alpha.3 --channel prerelease
+sh install.sh --version v0.1.0-alpha.4 --channel prerelease
 ~/.local/bin/zigurui --version
 ```
 
-通常のURLはmainの更新を追う。スクリプト自体も版固定で取得したい場合は、[alpha.3固定URL](https://raw.githubusercontent.com/ta-dadadada/zigurui/v0.1.0-alpha.3/scripts/install.sh) を使い、同じ版・チャンネルの引数を指定する。
+通常のURLはmainの更新を追う。スクリプト自体も版固定で取得したい場合は、[alpha.4固定URL](https://raw.githubusercontent.com/ta-dadadada/zigurui/v0.1.0-alpha.4/scripts/install.sh) を使い、同じ版・チャンネルの引数を指定する。
 
 既定の配置先は `~/.local/bin`。`--bin-dir /absolute/path` で変更できる。PATHに含まれない場合は案内を表示するので、自分のシェルに合わせて設定する。シェル設定は自動変更しない。別の管理方法で入れたziguruiが先に選ばれる場合は、表示された導入先の絶対パスで確認する。
 
-更新・旧版への戻し方は、希望する版を指定して同じインストーラを再実行する。同じ版の再実行も可能。版の指定は必須で、自動的に最新版を選ばない。`--channel` の既定は `stable` で `vX.Y.Z` だけを受け付ける。当面のReleaseはプレリリースのみなので、`--channel prerelease` と `vX.Y.Z-alpha.N` / `beta.N` / `rc.N` のタグを明示する。版とチャンネルが一致しなければ終了する。
+更新・旧版への戻し方は、希望する版を指定して同じインストーラを再実行する。同じ版の再実行も可能。版の指定は必須で、自動的に最新版を選ばない。`--channel` の既定は `stable` で `vX.Y.Z` だけを受け付ける。RCまではプレリリースなので、`--channel prerelease` と `vX.Y.Z-alpha.N` / `beta.N` / `rc.N` のタグを明示する。版とチャンネルが一致しなければ終了する。
 
 取得・SHA-256検証・展開に失敗した場合は既存バイナリを残す。導入記録のない既存ファイル、シンボリックリンク、前回導入後に他の方法で変更されたバイナリは上書きしない。miseなどで管理している場合はその方法で更新するか、別の `--bin-dir` を選ぶ。強制上書きは提供しない。
 
@@ -52,6 +52,23 @@ zigurui update --help
 更新処理は実行ファイルに組み込んだインストーラを使用する。設定ファイルは読まず、不正な設定があっても更新できる。取得・検証・展開に失敗すれば既存バイナリを保持し、設定・索引・原本も変更しない。ライセンスと導入記録の保存・置換中断時の扱いは外部インストーラと共通。
 
 公開済みの `v0.1.0-alpha.3` には `update` は含まれない。この機能を含む版への初回切替、旧版へ戻してコマンドが使えなくなった場合、組み込みインストーラが将来の配布形式を扱えない場合は、外部インストーラを使う。`zigurui update --help` は管理状態や設定にかかわらず表示できる。
+
+## 版と互換性・移行表
+
+この文書は `v0.1.0-rc.1` 候補の仕様。現在の公開版はalpha.4で、RCと安定版 `v0.1.0` は未公開。RCは配布・移行の確認用、stableはその確認後に別途判断する。未公開タグを指定しても導入できない。
+
+| 対象 | alpha.4からRC候補への移行 | 旧版へ戻すとき・互換範囲 |
+| --- | --- | --- |
+| 実行ファイル / CLI | 管理済みなら `zigurui update --version v0.1.0-rc.1 --channel prerelease`（公開後）。alpha.3以前は外部インストーラ。同じ版の再導入も可能 | 更新は明示タグだけ。管理外の導入は元の管理方法、または別の `--bin-dir` で導入する。自動移行・強制上書きはしない |
+| 検索 / 順位 | 既存のliteral/normalized、AND、絞り込み、通常のテキスト出力を維持。未設定の順位はpath、heading/relevanceはopt-in | 新しいオプションを旧版で使える保証はない。利用版のhelpを確認する。検索候補集合は順位設定で増えない |
+| config | 従来の `index_path` / `mode` は引き続き使用可能。`rank` / `relevance` を追加しても索引の再構築は不要 | 旧版は未知キーを拒否する。戻す前に設定を別に保持し、旧版が理解する項目だけの設定を用意する。バイナリ更新はconfigを変更しない |
+| JSON / explain | relevance専用のschema_version=1 / algorithm=relevance-v1。通常のテキスト出力とは別契約 | alpha.4以前はexplain非対応。将来のJSON変更はschema/algorithmを確認する。schemaコマンドのJSONとは別の契約 |
+| 保存索引 | alpha.4は既にv3対応。v2を検索・schemaで読める。通常構築はv3を保存。v2索引から差分更新を始めるには、原本から **明示的な全再構築** でroot付きv3を作る。既存のroot付きv3は再構築不要 | alpha.3以前はv3を読めない。旧バイナリで原本から **別の保存先** へ再構築する。保持したいv2を新版のindexで上書きしない |
+| 正規化 / index mode | normalized索引ではliteral検索も可能。literal索引をnormalized検索するには別途再構築 | 非対応の索引版・正規化profile・破損は拒否し、自動変換しない。索引・config・原本は更新失敗時も保持する |
+
+stable公開後の更新構文は `zigurui update --version v0.1.0`（channel省略時はstable）。stable公開を意味する例ではない。配布対象はmacOS arm64とLinux x86_64（musl静的リンク）で、OS最低版は未確定、署名・公証・attestationは未対応。
+
+新設定・新索引を旧版でも使えるという互換保証はしない。CLI/config/JSON/indexはそれぞれ上表の範囲で扱い、版とhelpを確認する。索引だけで原本のバックアップを代用しない。
 
 ## 保存先
 
@@ -185,7 +202,7 @@ BM25などの多段階ランキング・ファイル監視は未実装。ひら�
 
 ## 差分更新
 
-この機能とv3索引は開発版の機能で、公開済み`v0.1.0-alpha.3`には含まれない。バイナリを更新する`zigurui update`とは別の操作。
+RC候補はv3索引と差分更新に対応する。alpha.4からv3・差分更新に対応し、alpha.3以前の配布版は非対応。バイナリを更新する`zigurui update`とは別の操作。
 
 ```sh
 # 最初は通常構築でroot付きv3索引を作る
@@ -208,7 +225,7 @@ zigurui index --mode normalized --incremental /path/to/notes /path/to/notes.idx
 
 ## 見出し一致を優先する
 
-この機能は開発版の機能で、公開済み`v0.1.0-alpha.3`には含まれない。
+alpha.4以降の機能。alpha.3以前の配布版には含まれない。
 
 `search` / `scan` の入力パス前に `--rank heading` を指定すると、一致済み文書のうち、検索語のいずれかが見出しにも一致する文書を先に表示する。順位を設定していなければ指定なし、または明示 `--rank path` で従来のパス順を維持する。同点はパス順。見出しの階層、個数、出現回数、一致語数では加点しない。AND検索は検索対象範囲で全語句が一致する条件を維持し、その一部が見出しにあれば優先する。
 
@@ -252,5 +269,7 @@ coverageは異なる入力語句の一致割合で、反復回数を加算しな
 rank・field・重み・絞り込み条件の変更に索引の再構築は不要。保存済み原文へ検索時に反映する。modeをnormalizedへ変える場合はnormalized索引が必要で、literal索引を自動変換しない。`index_path` の変更も索引を移動・変換しない。旧設定は引き続き使えるが、新項目を知らない旧版へ戻す場合は設定も確認する。
 
 不正なrelevance設定は、`relevance.fields[0].weight` のような0始まりの箇所と理由で診断する。入力した値やmetadata経路・未知キーの文字列は診断に含めない。JSON構文や重複キーはJSON解析段階の診断となる。CLIでrankを上書きしても、不正設定を無視しない。
+
+広い一致集合でのnormalized relevanceは全文変換と採点の費用が大きい。差分更新も旧索引の読込・検証・再利用処理があり、共有gramの多い文書群などで全再構築より遅くなる場合がある。速度向上の保証ではない。[差分更新の評価](index-storage-design.md#literal少数更新の追加調査2026-11-15)と[relevanceの検証](relevance-ranking.md)を参照。
 
 採点式、W-Lが重なりにより隙間を相殺する性質、資源上限と超過時エラー、独立評価と限界は[relevanceの設計・検証](relevance-ranking.md)を参照。

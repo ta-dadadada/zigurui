@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from package_release import DEPENDENCY_LICENSES, TARGETS, aggregate, archive_stem, build_target, compile_target, package, stage_target, target_matrix, validate_tag, verify
+from package_release import DEPENDENCY_LICENSES, TARGETS, aggregate, archive_stem, build_target, compile_target, package, stage_target, target_matrix, release_flags, validate_tag, verify
 
 
 class ReleasePackageTest(unittest.TestCase):
@@ -56,12 +56,22 @@ class ReleasePackageTest(unittest.TestCase):
                 self.assertFalse((self.root / "missing-license").exists())
                 retained.rename(original)
 
-    def test_only_prerelease_semver_is_accepted(self):
-        for tag in (self.tag, "v1.2.3-beta.0", "v2.0.0-rc.1"):
+    def test_stable_and_prerelease_semver_are_accepted(self):
+        for tag in (self.tag, "v1.2.3-beta.0", "v2.0.0-rc.1", "v0.1.0", "v1.2.3"):
             self.assertEqual(validate_tag(tag), tag)
-        for tag in ("v1.0.0", "v01.0.0-alpha.1", "v1.0.0-alpha.01", "v1.0.0-preview.1", "v1.0.0-alpha.1+meta", "../evil", "v1.0.0-alpha.1\n", "$(touch x)", "-x", "v１.0.0-alpha.1"):
+        for tag in ("v1.0.0\n", "v1.0.0-rc.1/extra", "v1.0." + "9" * 65, "v01.0.0", "v1.01.0", "v1.0.00", "v1.0.0+meta", "v1.0.0-rc", "v01.0.0-alpha.1", "v1.0.0-alpha.01", "v1.0.0-preview.1", "v1.0.0-alpha.1+meta", "../evil", "v1.0.0-alpha.1\n", "$(touch x)", "-x", "v１.0.0-alpha.1"):
             with self.subTest(tag=tag), self.assertRaises(ValueError):
                 validate_tag(tag)
+
+    def test_publication_flags_and_stable_artifact_roundtrip(self):
+        for tag in ("v0.1.0", "v2.3.4"):
+            self.assertEqual(release_flags(tag), ["--latest=true"])
+            output = package(tag, self.binaries, self.root / tag, self.repo)
+            verify(tag, output)
+        for suffix in ("alpha.1", "beta.0", "rc.1"):
+            self.assertEqual(release_flags(f"v0.1.0-{suffix}"), ["--prerelease", "--latest=false"])
+        with self.assertRaises(ValueError):
+            release_flags("v1.0.0; echo bad")
 
     def test_archives_are_deterministic_and_contain_only_allowed_files(self):
         first = package(self.tag, self.binaries, self.root / "first", self.repo)

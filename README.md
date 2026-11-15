@@ -12,21 +12,21 @@
 - **絞り込み**：複数語句のAND、YAML frontmatter、ファイル名・パスによる条件指定。
 - **ローカルで完結**：文書を読み取り専用で扱い、保存した索引から検索する。
 
-現在は**プレリリース**。開発版では明示指定の見出し優先と差分更新に対応し、公開済みalpha.3には含まれない。ファイル監視は未実装。文書の変更は通常の全再構築、または明示的な差分更新で反映する。索引には原文とパスが含まれるため、元の文書と同様に扱う。
+現在は**プレリリース**。公開済みは `v0.1.0-alpha.4`、次の公開候補は `v0.1.0-rc.1`。RC・安定版 `v0.1.0` はまだ公開していない。以下の検索仕様はRC候補のソースを対象とし、公開版の機能差と更新時の注意は[移行表](docs/usage.md#版と互換性移行表)を参照する。ファイル監視は未実装。索引には原文とパスが含まれるため、元の文書と同様に扱う。
 
 ## インストール・更新
 
-配布バイナリは **macOS arm64 / Linux x86_64** 向け。Zigのインストールは不要。curl、tar、shasumまたはsha256sumを用意する。
+配布バイナリは **macOS arm64 / Linux x86_64** 向け。Zigのインストールは不要。curl、tar、shasumまたはsha256sumを用意する。OSの最低版は未確定。署名・macOS公証には未対応。
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ta-dadadada/zigurui/main/scripts/install.sh \
-  | sh -s -- --version v0.1.0-alpha.3 --channel prerelease
+  | sh -s -- --version v0.1.0-alpha.4 --channel prerelease
 ~/.local/bin/zigurui --version
 ```
 
 既定の配置先は `~/.local/bin`。PATHに追加して以下の例を実行する。更新時も希望する版を指定して再実行する。版の指定は必須で、自動的に最新版を選ばない。
 
-`update` を含む版では `zigurui update --version <tag> --channel prerelease` でも同じ導入先を更新できる。インストーラの管理対象だけが更新され、設定・索引は保持される。公開済みのalpha.3にはこのコマンドは含まれない。詳細は [CLIからの更新](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#cliからの更新) を参照。
+alpha.4以降では `zigurui update --version <tag> --channel prerelease` でも同じ導入先を更新できる。インストーラの管理対象だけを更新し、設定・索引は保持する。RC公開後は `<tag>` に `v0.1.0-rc.1` を指定する。stableの公開後は `zigurui update --version v0.1.0`（既定channelはstable）。管理外の導入・旧版への切替は[利用ガイド](docs/usage.md#cliからの更新)を参照。
 
 公開版は [Releases](https://github.com/ta-dadadada/zigurui/releases)、スクリプトを保存して確認する方法・更新・復旧・アンインストールは [利用ガイド](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#インストール更新) を参照。ソースから使う場合は [ビルド手順](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#ソースからビルドする) を参照。
 
@@ -48,7 +48,7 @@ zigurui search --mode normalized notes.idx 'ｶﾞﾗｽ'
 zigurui search --mode normalized --all notes.idx 'ガラス' '断熱'
 ```
 
-結果は `絶対パス:行番号: 抜粋` の形式で、文書ごとに1件、既定ではパス順に表示する。見出し一致を優先する場合は [利用手順](docs/usage.md#見出し一致を優先する) の `--rank heading` を使う。fieldと近接による明示順位 `--rank relevance` と説明JSONは[利用手順](docs/usage.md#relevanceの順位と説明を見る)を参照。上の例では `housing.md` の2行目が見つかる。
+結果は `絶対パス:行番号: 抜粋` の形式で、文書ごとに1件、既定ではパス順に表示する。relevanceは明示指定または設定で有効にする。見出し一致を優先する場合は [利用手順](docs/usage.md#見出し一致を優先する) の `--rank heading` を使う。fieldと近接による明示順位 `--rank relevance` と説明JSONは[利用手順](docs/usage.md#relevanceの順位と説明を見る)を参照。上の例では `housing.md` の2行目が見つかる。
 
 自分の文書を検索するには `notes` を対象ディレクトリに置き換える。`.md` / `.markdown` を再帰的に読み込む。シンボリックリンクは追跡せず、隠しファイル・ディレクトリは対象に含む。原文の変更後は同じ `index` コマンドを再実行する。
 
