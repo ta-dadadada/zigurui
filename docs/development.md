@@ -31,6 +31,8 @@ Git hookを未導入の場合は、既存hookと共有範囲を確認してか�
 | `python3 scripts/test-install.py` | インストーラの隔離環境テスト（取得はスタブ） |
 | `python3 scripts/test-incremental-cli.py` | v2/v3互換・差分更新・旧索引保持の結合テスト |
 | `python3 scripts/test-index-size.py` | 保存容量集計と不正入力拒否のテスト |
+| `python3 scripts/test-relevance.py --output .local/relevance-validation/run-NEW` | 匿名合成文書でfield・設定・説明・独立oracle・互換性を検証（未使用の出力先） |
+| `python3 scripts/test-relevance-oracle.py` | relevanceの独立oracleと除去比較の手計算を検証 |
 | `python3 scripts/test-ranking.py --output .local/ranking-validation/run-1` | 匿名合成文書の順位・検索集合・snapshotを検証（出力先は未使用のパス） |
 | `python3 scripts/test-cli.py` | ビルド済み実行ファイルの結合テスト（Python 3が必要） |
 | `python3 scripts/test-benchmark-corpus.py` | 合成文書・独立した正解判定の単体テスト |
@@ -64,6 +66,7 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 - [frontmatter](frontmatter-evaluation.md)
 - [ファイル名・パス](builtin-metadata-evaluation.md)
 - [frontmatterの失敗診断](frontmatter-diagnostics-evaluation.md)
+- [relevance順位・設定・説明](relevance-ranking.md)
 
 ## 実装の構成と未実装の機能
 
@@ -74,6 +77,7 @@ CI相当のコマンドをmacOSで確認した記録がある。個別の実行�
 - `src/storage.zig`: v2読取互換・v3の差分可変長ID形式の符号化・復号・検査
 - `src/incremental.zig`: 未変更文書のpostings再利用と追加・変更・削除の反映
 - `src/ranking.zig`: 保存原文から見出し一致を判定し、一致済み結果だけを並べ替える
+- `src/relevance.zig`: field・重みの意味的検証と一致済み文書の採点・説明内訳。JSON境界の検証はconfig、表示はmainが担当する
 - `src/relevance.zig`: field別coverage・全出現の近接と説明可能な採点。契約と評価は[relevanceの設計・検証](relevance-ranking.md)
 - `src/update.zig`: 実行中の管理済みバイナリの更新を組み込みインストーラへ委譲
 - `src/config.zig`: JSON設定の読み込み・検証と設定内の相対索引パス解決

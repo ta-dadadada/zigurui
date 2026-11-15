@@ -21,22 +21,33 @@ pub const Settings = struct {
     proximity_weight: f64 = 1,
     ordered_weight: f64 = 1,
 
-    /// field数・重複・経路・有限非負の重み上限を検証する。確保は行わない。
-    pub fn validate(self: Settings) !void {
-        if (self.fields.len == 0 or self.fields.len > max_fields) return error.InvalidRelevanceConfiguration;
-        if (!validWeight(self.proximity_weight) or !validWeight(self.ordered_weight)) return error.InvalidRelevanceConfiguration;
+    /// 値や経路を含まない違反情報を返す。JSONの型検証はconfigが担当する。
+    pub fn validationIssue(self: Settings) ?ValidationIssue {
+        if (self.fields.len == 0 or self.fields.len > max_fields) return .{ .key = "fields", .reason = "fieldは1件以上、上限件数以内で指定してください" };
+        if (!validWeight(self.proximity_weight)) return .{ .key = "proximity_weight", .reason = weight_reason };
+        if (!validWeight(self.ordered_weight)) return .{ .key = "ordered_weight", .reason = weight_reason };
         for (self.fields, 0..) |field, i| {
-            if (!validWeight(field.weight)) return error.InvalidRelevanceConfiguration;
+            if (!validWeight(field.weight)) return .{ .field_index = i, .key = "weight", .reason = weight_reason };
             if (field.kind == .metadata) {
-                const pointer = field.pointer orelse return error.InvalidRelevanceConfiguration;
-                if (std.mem.indexOfScalar(u8, pointer, 0) != null or (frontmatter.selectorKind(pointer) catch return error.InvalidRelevanceConfiguration) != .metadata) return error.InvalidRelevanceConfiguration;
-            } else if (field.pointer != null) return error.InvalidRelevanceConfiguration;
+                const pointer = field.pointer orelse return .{ .field_index = i, .key = "pointer", .reason = "metadataにはキー経路が必要です" };
+                const kind = frontmatter.selectorKind(pointer) catch return .{ .field_index = i, .key = "pointer", .reason = "有効なmetadataキー経路が必要です" };
+                if (std.mem.indexOfScalar(u8, pointer, 0) != null or kind != .metadata) return .{ .field_index = i, .key = "pointer", .reason = "有効なmetadataキー経路が必要です" };
+            } else if (field.pointer != null) return .{ .field_index = i, .key = "pointer", .reason = "metadata以外にpointerは指定できません" };
             for (self.fields[0..i]) |previous| {
-                if (previous.kind == field.kind and (field.kind != .metadata or std.mem.eql(u8, previous.pointer.?, field.pointer.?))) return error.InvalidRelevanceConfiguration;
+                if (previous.kind == field.kind and (field.kind != .metadata or std.mem.eql(u8, previous.pointer.?, field.pointer.?))) return .{ .field_index = i, .key = "kind", .reason = "同じfieldが重複しています" };
             }
         }
+        return null;
+    }
+
+    /// field数・重複・経路・有限非負の重み上限を検証する。確保は行わない。
+    pub fn validate(self: Settings) !void {
+        if (self.validationIssue() != null) return error.InvalidRelevanceConfiguration;
     }
 };
+/// keyとreasonは固定文字列を借用し、field_indexは0始まり。入力値を保持しない。
+pub const ValidationIssue = struct { field_index: ?usize = null, key: []const u8, reason: []const u8 };
+const weight_reason = "有限な0〜100の数値が必要です";
 fn validWeight(w: f64) bool {
     return std.math.isFinite(w) and w >= 0 and w <= 100;
 }

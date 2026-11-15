@@ -56,7 +56,9 @@ zigurui search --mode normalized --all notes.idx 'ガラス' '断熱'
 
 ## 保存先・設定ファイル
 
-索引パスを省略すると、既定では `~/.local/share/zigurui/default.idx` を使う。`zigurui paths` で保存先を確認できる。macOS・Linux共通でXDG方式を使い、`config.json` で既定索引と検索モードを指定できる。
+索引パスを省略すると、既定では `~/.local/share/zigurui/default.idx` を使う。`zigurui paths` で保存先を確認できる。macOS・Linux共通でXDG方式を使い、`config.json` で既定索引・検索モード・順位を指定できる。
+
+順位を自分の文書群に合わせる手順は[検索の調整ガイド](docs/search-tuning.md)を参照。人が読む場合と[利用者Skill](skills/zigurui/SKILL.md)を使うAIエージェントの両方に対応し、設定例・非公開の比較・説明の確認・復元を案内する。
 
 詳細は [保存先](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#保存先) と [設定・CLIの優先順位](https://github.com/ta-dadadada/zigurui/blob/main/docs/usage.md#設定ファイル) を参照。
 
