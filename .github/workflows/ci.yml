@@ -4,16 +4,37 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      distribution: ${{ steps.select.outputs.distribution }}
+      benchmark: ${{ steps.select.outputs.benchmark }}
+    steps:
+      - name: Checkout complete history for conservative change detection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Select additional validation
+        id: select
+        run: python3 scripts/ci_conditions.py --github-output "$GITHUB_OUTPUT"
+
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -33,6 +54,9 @@ jobs:
 
       - name: Check Zig formatting, build and unit tests
         run: mise run check
+
+      - name: Test CI conditions
+        run: python3 scripts/test-ci-conditions.py
 
       - name: Test CLI
         run: python3 scripts/test-cli.py
@@ -74,12 +98,21 @@ jobs:
         run: python3 scripts/test-install.py
 
   distribution:
+    needs: changes
+    # 取得失敗・判定失敗・空/不正outputでも省略しない。キャンセル済みPRだけは停止する。
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.distribution != 'false') }}
     uses: ./.github/workflows/distribution.yml
     with:
       # ローカルの版埋込み・梱包試験用。タグやReleaseは作成しない。
       tag: v0.1.0-rc.1
 
+  security:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/security.yml
+
   benchmark:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.benchmark != 'false') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:

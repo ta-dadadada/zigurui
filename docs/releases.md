@@ -118,10 +118,35 @@ Linuxではtargetを `linux-x86_64` に変える。受入の出力や生ログ�
 
 ## 公開手順と承認
 
-公開の定義は [release.yml](../.github/workflows/release.yml)。`v*` タグpushで起動し、不正タグの拒否、共通source検査・梱包テスト・installerテスト、共通の配布受入を経て、全対象が成功した場合だけpublishする。書込権限はpublishだけが持つ。既存Releaseは更新・上書きせず、`gh release create --verify-tag` が失敗したら停止する。
+公開の定義は [release.yml](../.github/workflows/release.yml)。`v*` タグpushで起動し、不正タグの拒否、共通source検査・梱包テスト・installerテスト、共通の配布受入を経て、全対象が成功した場合だけpublishする。Securityも同じタグで実行し、publishは両OS受入とSecurityの成功を待つ。イベントごとの実行条件は[CIの実行条件](ci.md)を参照。書込権限はpublishだけが持つ。既存Releaseは更新・上書きせず、`gh release create --verify-tag` が失敗したら停止する。
 
 通常CIのcheckではheading試験に加えてrelevance CLIと独立区間oracleを実行する。性能ベンチマークは配布受入から分離する。既知の広いnormalized relevanceの費用や差分更新が遅くなる条件は[利用ガイド](usage.md#版と互換性移行表)と評価資料を参照。性能改善は今回の対象外。
 
 公開前にレビュー・マージを完了し、mainの固定SHAとCI/Security成功を確認する。未マージ枝から公開しない。タグpushは公開workflowを開始する操作なので、対象タグと公開範囲の承認を確認してから実行する。RCの承認からstable公開の承認を推定しない。
 
 公開前に対象コミット・タグ・既存tag/releaseの有無・配布対象・検証結果を確認し、個人パス・秘密情報・索引・生ログが公開差分や成果物に含まれないことを確かめる。既存tag/releaseは削除・上書きしない。公開後はタグの固定SHA、Releaseのprerelease/Latest属性、3アセット、配布SHA256、公開URLからの隔離導入・更新と対象OSでの起動を確認する。モック取得成功を実HTTPS配布確認の代わりにしない。
+
+
+## タグ保護（設定済み）
+
+2026-11-15に利用者がタグ保護を設定し、その後のAPI読み取りでactiveな `release-tag-create` / `release-tag-immutable` と、既存の[main](https://github.com/ta-dadadada/zigurui/rules/27216606)保護が維持されていることを確認した。mainにはPR・履歴・削除/更新制限があり、required checksは `check` / `Scan (secret)`（GitHub Actions由来）、最新base必須はfalse、管理者roleのalways bypassがある。接続ユーザーはrepository admin、workflow既定権限はread、fork初回contributorには実行承認が必要。これは確認時点の状態であり、設定を変更していない。画面の未取得の選択状態は推測しない。
+
+公開タグには次の2つのactive tag rulesetを重ねている。対象は名前パターン `v*`（API表現は `refs/tags/v*`）、除外なし。タグ名のSemVer検証は引き続き梱包処理が担当する。
+
+| ruleset | ルール | bypass |
+| --- | --- | --- |
+| release-tag-create | Restrict creationsのみ | 現在の個人repositoryでは公開担当のRepository adminだけをAlways allow。write/maintain全員、Dependabot、一般のActions/Appには与えない。管理者が増えたら対象者を再確認する |
+| release-tag-immutable | Restrict updates、Restrict deletions、Block force pushes | 空。作成を許した担当者にも通常のタグ移動・削除を許さない |
+
+1つのrulesetに3制限と同じbypassをまとめると、作成者が更新・削除もbypassできる。2つに分けることで「指定担当者は新規作成だけ可、既存タグは全員不変」を表す。タグにはPRによる作成経路がないため、作成bypassにFor pull requests onlyを選ばない。組織へ移行して専用release team/Appを使うなら、その管理主体だけへ絞る案を別途判断する。既存タグも保護対象となるが作り直しは不要で、誤った公開は新しい版で訂正する。規則自体を編集できるadminの権限までは不可逆に封じない。
+
+タグ作成者は承認済み固定SHAへタグをpushする人/認証主体。Releaseの `GITHUB_TOKEN` は既存タグを `--verify-tag` で確認し、検証済みartifactをReleaseへ添付するための別主体で、publishだけが `contents: write` を持つ。タグを作成・移動するbypassは不要。`GITHUB_TOKEN` 自身でタグをpushしても通常のpush workflowは連鎖発火しないため、公開手順の人によるタグpushと同一視しない。
+
+タグ保護は、作成者・更新・削除を制限する。次の2つの確認を代替しない。
+
+1. **タグを作る前**：対象SHAがマージ済みmain上にあること、その同じSHAのmain CI/Securityが成功したこと、公開承認と既存tag/releaseを確認する。PRの合成mergeの成功だけでは不十分。現在のworkflowはmainへの所属・事前成功を自動照合していないため、これは公開担当の必須手順として残る。mainのbypassがあることも考慮し、単にmain上という理由で合格扱いしない。
+2. **タグpush後**：そのタグの版を埋め込んだ両OSの最終アーカイブが、同じrunでSHA256・導入・移行・検索等の受入とSecurityに成功すること。publishはその成功済みartifactだけを使う。タグ作成前のstatus checkを仮に追加できても、まだ存在しないタグ対象archiveの合格は証明できない。bypass actorを許すだけでもCI合格の証明にはならない。
+
+rc.1はマージ確認・固定SHAのmain検証成功・別の続行指示後に、新規タグとして作る計画と両立する。stable公開の承認は別に必要。rulesetの設定は利用者が実施した。エージェントは読み取り確認のみで、bypass・権限を変更していない。今後の設定変更も別途判断する。
+
+根拠： [タグの作成/更新/削除制限](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets)、[bypassと対象パターン](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository)、[GITHUB_TOKENによるイベント発火](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)。

@@ -51,7 +51,7 @@ Zigのオプションを直接指定する場合は、例えば `mise exec -- zi
 
 固定seedの合成文書を使う検索の正しさ・速度・容量の比較は、[ベンチマークの条件と結果](benchmarks.md)を参照する。
 
-[GitHub ActionsのCI](../.github/workflows/ci.yml)はUbuntu上で検査・テストの `check` とReleaseFastの `benchmark` を、依存関係のない別ジョブで実行する。CIの測定条件は100・1,000文書、索引構築3回、各検索方式5回、予熱1回とし、GitHubの実行画面で概要と公開用の要約JSONを確認する。生の測定データや個人パスを含むmetadataはartifactへ保存しない。性能の閾値や過去結果との自動比較は設けない。
+[GitHub ActionsのCI](../.github/workflows/ci.yml)はUbuntu上で検査・テストの `check` とReleaseFastの `benchmark`、両OSの配布物受入を実行する。イベント・変更対象ごとの実行条件、required checks、forkと判定失敗時の扱いは[CIの実行条件](ci.md)を正本とする。CIの測定条件は100・1,000文書、索引構築3回、各検索方式5回、予熱1回とし、GitHubの実行画面で概要と公開用の要約JSONを確認する。生の測定データや個人パスを含むmetadataはartifactへ保存しない。性能の閾値や過去結果との自動比較は設けない。
 
 独立した処理の並列化は待ち時間の短縮を狙うものだが、セットアップの重複でrunnerの総使用時間が増える場合がある。GitHub上での所要時間や使用量は未計測。
 

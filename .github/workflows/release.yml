@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -30,6 +30,8 @@ jobs:
       - name: Check source and packaging
         run: |
           mise run check
+          python3 scripts/test-ci-conditions.py
+          python3 scripts/test-relevance-oracle.py
           python3 scripts/test-package-release.py
           python3 scripts/test-install.py
 
@@ -39,8 +41,11 @@ jobs:
     with:
       tag: ${{ github.ref_name }}
 
+  security:
+    uses: ./.github/workflows/security.yml
+
   publish:
-    needs: distribution
+    needs: [distribution, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
